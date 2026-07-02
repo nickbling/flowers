@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cultivar, plumeria } from "../src";
+import { BLOOM_CSS, cultivar, plumeria } from "../src";
 
 const ids = (svg: string) =>
   [...svg.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
@@ -52,12 +52,28 @@ describe("plumeria", () => {
     }
   });
 
-  it("is settled by default and animates only when asked", () => {
-    expect(plumeria({ seed })).not.toContain("@keyframes");
+  it("stays a still document even when the bloom hooks are on", () => {
+    expect(plumeria({ seed })).not.toContain("data-petal");
 
-    const blooming = plumeria({ seed, bloom: true });
-    expect(blooming).toContain("@keyframes");
-    expect(blooming).toContain("prefers-reduced-motion");
+    const hooked = plumeria({ seed, bloom: true });
+    expect(hooked).not.toContain("<style>");
+    expect(hooked).not.toContain("@keyframes");
+    for (let i = 0; i < 5; i++) {
+      expect(hooked).toContain(` data-petal="${i}"`);
+    }
+    expect(hooked).toContain("data-corolla");
+    expect(BLOOM_CSS).toContain("prefers-reduced-motion");
+    for (const hook of ["[data-petal]", "[data-corolla]", "[data-fade]"]) {
+      expect(BLOOM_CSS).toContain(hook);
+    }
+  });
+
+  it("stays bare by default and casts a shadow only when asked", () => {
+    expect(plumeria({ seed })).not.toContain("dropf");
+    expect(plumeria({ seed, shadow: true })).toContain("dropf");
+    expect(plumeria({ seed, shadow: true, theme: "dark" })).not.toContain(
+      "dropf"
+    );
   });
 
   it("is bare by default and rests on a ground glow only when asked", () => {
@@ -81,7 +97,15 @@ describe("plumeria", () => {
         .slice(0, 10);
 
       for (const theme of ["light", "dark"] as const) {
-        const svg = plumeria({ bloom: true, date, seed: date, theme });
+        // every opt-in at once: the heaviest document a consumer can ask for
+        const svg = plumeria({
+          bloom: true,
+          date,
+          glow: true,
+          seed: date,
+          shadow: true,
+          theme,
+        });
 
         expect(svg).not.toMatch(/NaN|Infinity|undefined/);
         expect(svg.length).toBeLessThan(48_000);

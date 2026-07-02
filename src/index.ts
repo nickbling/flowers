@@ -4,6 +4,7 @@
 // `shared/` and never touching this one.
 
 export {
+  BLOOM_CSS,
   cultivar,
   type PlumeriaOptions,
   plumeria,

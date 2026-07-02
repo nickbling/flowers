@@ -15,6 +15,7 @@ const CASES: PlumeriaOptions[] = [
   { seed: "2026-06-14", theme: "dark" },
   { seed: "2026-06-14", bloom: true },
   { seed: "2026-06-14", glow: true },
+  { seed: "2026-06-14", shadow: true },
   { seed: "hello" },
   { date: "1991-03-22", seed: "1991-03-22" },
   { date: "2000-01-21", seed: "2000-01-21" },
