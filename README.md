@@ -31,19 +31,19 @@ const name = cultivar({ seed: "2026-06-14" }); // "pink pearl", "rainbow × gold
 
 **Color** (`color.ts`). All mixing happens in OKLCH with shortest-arc hue, so a gold-to-pink ramp passes through warm orange instead of grey. Gradient stops are sampled along OKLCH geodesics and converted to hex only at the edge of the system, gamut-mapped by walking chroma down.
 
-**No outlines.** Petals separate the way photographs do: a double contact shadow under every covering edge (crisp line opening into penumbra), a thin rim of light on the waxy edge, and one key light from the top left, cast as a per-petal gradient so the corolla reads as a rounded dome instead of five flat cut-outs. Pale cultivars, which would melt into light paper, also take a soft inner shadow along the free edge. A radial mask fades the contact shadows near the hub, so the center stays lit instead of falling in its own shade.
+**No outlines.** Petals separate the way photographs do: a double contact shadow under every covering edge (crisp line opening into penumbra), a thin rim of light on the waxy edge, and one key light from the top left, cast as a per-petal gradient so the corolla reads as a rounded dome instead of five flat cut-outs. Every shade is dense color, never grey: contact shadows carry chroma, and the dark half of each petal falls into a saturated cast of the body itself. On light paper the body tones take an ivory floor so even the whitest cultivar keeps a step of contrast, and an opt-in cast shadow (`shadow: true`) seats the corolla on the surface. A radial mask fades the contact shadows near the hub, so the center stays lit instead of falling in its own shade.
 
-**The throat.** Two registers: a steady shared core, plus a flame ellipse per petal so the gold reads as a star, its edge torn into tongues by per-petal turbulence displacement. A warm glow pools at the hub and bleeds up each petal, so the heart reads lit from within. Vein fans die into the body before the rim, fine radial fibers weave an iris-like texture, and an anisotropic grain runs lengthwise like real petal striations.
+**The throat.** Two registers: a steady shared core, plus a flame ellipse per petal so the gold reads as a star, its edge torn into tongues by per-petal turbulence displacement. An amber glow pools at the hub — color, never a white haze — and a silky radiation of hair-fine golden rays converges on the dark eye, one 72° sector defined once and rotated five times. Vein fans die into the body before the rim, fine radial fibers weave an iris-like texture, and an anisotropic grain runs lengthwise like real petal striations.
 
-**The grade.** A final pass over the whole flower, the way a phone's auto mode balances a shot: a gentle contrast curve plus a touch of saturation and luminance, so the corolla reads with depth instead of flat and pale. It is softened on pale cultivars, whose near-white petals a full lift would blow into the background.
+**The grade.** The same saturate → contrast → gamma chain a phone's auto mode would run, baked into every color at generation time instead of an SVG filter: WebKit rasterizes filter chains in software and rendered them visibly paler than Chromium, so baking makes every engine paint the identical flower and drops the costliest filter. Softened on pale cultivars, whose near-white petals a full lift would blow into the background.
 
 **The moon** (`moon.ts`). Pass a `date` and the moon of that day is arithmetic on it (one known new moon and the synodic month). Full-moon blooms come out paler and silvery.
 
-**Bloom.** The SVG can carry its own entrance: petals unfurl around the hub with a staggered fade, honoring `prefers-reduced-motion`. It is opt-in (`bloom: true`); the default is the settled flower, which is what static rasterizers and favicons want. The petal group ids (`<uid>g0` to `<uid>g4`) are exposed, so a different entrance can be driven from outside.
+**Bloom.** The SVG is always a still document; animation ships beside it, never inside it. `bloom: true` labels the petals with data attributes (origin and delay), and the exported `BLOOM_CSS`, injected once per page, unfurls every hooked flower around its hub with a staggered fade, honoring `prefers-reduced-motion`. A different entrance is one override of the `nbf-*` keyframes away.
 
 **Glow.** By default the flower carries no backdrop, since a library should not assume the surface it lands on. Pass `glow: true` and it rests on a soft ground: a warm shade on paper, a faint throat-colored halo on dark. Presentation is opt-in, like the animation.
 
-**Theming.** Light and dark are the same geometry, re-toned. Both themes lift chroma so the colors read vivid, the light theme more, since warm paper washes pale petals out by simultaneous contrast. Element ids embed the theme, so two flowers of the same seed can share one document and `url(#...)` still resolves the right one.
+**Theming.** Light and dark are the same geometry, re-toned by vibrance rather than brightness: chroma rides toward the gamut edge while lightness holds, so the bloom burns with color instead of washing toward white. On dark the tones ease deeper against the black; on light the body stays luminous — the key light itself carries the body's hue warmed toward the sun's gold, since a pure-white lift buys brightness by draining saturation. Element ids embed the theme, so two flowers of the same seed can share one document and `url(#...)` still resolves the right one.
 
 ## API
 
@@ -56,10 +56,13 @@ cultivar(options): string   // the name of the flower that seed grows
 | --- | --- | --- | --- |
 | `seed` | `string` |  | identity; same seed, same flower |
 | `date` | `string?` | undefined | ISO day; the moon of that day pales the bloom |
-| `bloom` | `boolean?` | `false` | `true` adds the opening animation |
+| `bloom` | `boolean?` | `false` | `true` adds the animation hooks that `BLOOM_CSS` drives |
 | `glow` | `boolean?` | `false` | `true` rests the flower on a soft ground glow |
+| `shadow` | `boolean?` | `false` | `true` seats the flower on a cast shadow (light theme only) |
 | `theme` | `"light" \| "dark"` | `"light"` | re-tones, never restructures |
 | `size` | `number?` | `480` | width/height attributes; viewBox is always 480 |
+
+The SVG never carries `<style>`: with `bloom: true` it gains only data attributes, and the exported `BLOOM_CSS` (a constant string, no per-flower state) plays the entrance for every hooked flower on the page.
 
 The contract, locked by tests: deterministic per `(seed, theme)`; structure identical across themes; ids disjoint across themes; every `url(#...)` reference defined in-document; numerically sound and comfortably under 48 KB.
 
