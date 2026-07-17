@@ -1,25 +1,34 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@nbot/flowers",
-  "version": "0.3.0",
-  "description": "Deterministic, dependency-free botanical SVG flowers. One seed, one flower, the same everywhere, forever.",
+  "version": "1.0.0",
+  "description": "Deterministic botanical flowers from one shared genome, rendered as SVG or with Three.js.",
   "type": "module",
   "license": "MIT",
   "author": "Nicola Bottari",
-  "homepage": "https://github.com/nicolabottari/flowers#readme",
+  "homepage": "https://github.com/nickbling/flowers#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nicolabottari/flowers.git"
+    "url": "git+https://github.com/nickbling/flowers.git"
   },
-  "bugs": "https://github.com/nicolabottari/flowers/issues",
+  "bugs": "https://github.com/nickbling/flowers/issues",
   "keywords": [
     "svg",
     "generative",
     "procedural",
     "deterministic",
+    "botanical",
+    "daisy",
+    "anatomy",
     "flower",
+    "flower-pack",
+    "image-generation",
     "plumeria",
-    "oklch"
+    "passionflower",
+    "sunflower",
+    "oklch",
+    "threejs",
+    "webgl"
   ],
   "sideEffects": false,
   "exports": {
@@ -27,43 +36,77 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./core": {
+      "types": "./dist/core/index.d.mts",
+      "import": "./dist/core/index.mjs"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.mts",
+      "import": "./dist/catalog/index.mjs"
+    },
+    "./svg": {
+      "types": "./dist/svg/index.d.mts",
+      "import": "./dist/svg/index.mjs"
+    },
+    "./gl": {
+      "types": "./dist/gl/index.d.mts",
+      "import": "./dist/gl/index.mjs"
+    },
+    "./devkit": {
+      "types": "./dist/devkit/index.d.mts",
+      "import": "./dist/devkit/index.mjs"
+    },
+    "./devkit/browser": {
+      "types": "./dist/devkit/browser.d.mts",
+      "import": "./dist/devkit/browser.mjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
-    "CHANGELOG.md"
+    "docs"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
-  "packageManager": "pnpm@10.22.0",
+  "packageManager": "pnpm@11.13.0",
   "scripts": {
     "build": "tsdown",
-    "dev": "tsdown --watch",
+    "dev": "node scripts/dev.mjs",
+    "format": "biome format --write .",
+    "lint": "biome check .",
     "test": "vitest --run",
+    "test:browser": "node test/browser.mjs",
+    "test:package": "pnpm build && node test/package.mjs",
     "test:watch": "vitest",
     "type-check": "tsc",
-    "lint": "biome check .",
-    "format": "biome format --write .",
-    "prepare": "lefthook install",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm verify:release",
+    "verify": "pnpm type-check && pnpm lint && pnpm test && pnpm build",
+    "verify:release": "pnpm verify && pnpm audit --prod && node test/package.mjs && pnpm test:browser"
+  },
+  "peerDependencies": {
+    "@types/three": "^0.185.1",
+    "three": "^0.185.1"
+  },
+  "peerDependenciesMeta": {
+    "@types/three": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.0",
-    "@commitlint/cli": "^21.0.2",
-    "@commitlint/config-conventional": "^21.0.2",
-    "@types/node": "^24.7.0",
-    "lefthook": "^2.1.9",
-    "tsdown": "^0.22.2",
+    "@biomejs/biome": "^2.5.3",
+    "@types/node": "^24.13.3",
+    "@types/three": "^0.185.1",
+    "three": "^0.185.1",
+    "tsdown": "^0.22.7",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "lefthook"
-    ]
   }
 }

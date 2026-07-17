@@ -1,13 +1,38 @@
 # Changelog
 
+## 1.0.0
+
+### Breaking changes
+
+- Node.js 24 or newer is now required.
+- Removed `Theme` and the `theme` option. SVG flowers now use one transparent colorway on every background.
+- Existing Plumeria seeds render with the new shared specimen and visual treatment.
+
+### Added
+
+- Added immutable genomes and renderer-neutral anatomy shared by SVG and GL.
+- Added public species and cultivar authoring with deterministic variation, declarative pigment and reusable botanical organs.
+- Added Daisy, Sunflower and Passionflower with maintained cultivar ranges.
+- Added generic SVG and Three.js renderers with shared framing, pigment and tissue intent.
+- Added matte botanical GL lighting, rounded volume, recessed relief and controlled translucency.
+- Added flower packs and caller-owned catalogs for external species packages.
+- Added structural and cross-media development checks plus one browser workbench.
+- Reworked Plumeria SVG and GL around one shared specimen, including named cultivars and ordered crosses.
+- Kept Three.js as an optional peer used only by GL and browser development tools.
+
 ## 0.3.0
 
-The flower every engine paints the same. The final grade is baked into the colors, so WebKit no longer washes the bloom pale and first paint drops by a third; vibrance replaces brightness, with shades of dense color instead of grey and a key light that lives inside the petal's own hue; the hub gains a silky radiation of golden rays around an amber glow; the light theme goes luminous, seated by an anchored, opt-in cast shadow (`shadow`); and the SVG is now always a still document: `bloom: true` emits animation hooks that the exported `BLOOM_CSS` drives from the page. The look is reworked, so a given seed grows a new flower; existing options are unchanged.
+- Moved final color grading into the generated SVG so WebKit and Chromium preserve the same palette.
+- Added denser color, a warmer center and the opt-in `shadow` ground treatment.
+- Made the SVG static by default. `bloom: true` adds hooks for the exported `BLOOM_CSS` animation.
+- Changed the rendered result for existing seeds without changing the existing options.
 
 ## 0.2.0
 
-A brighter, rounder bloom. A single key light gives the corolla volume, a final grade adds contrast and depth, the throat glows from within, and a finer fiber weave reads like an iris up close. Pale cultivars hold their edges against light backgrounds, and colored ones gain depth without flattening. A new opt-in `glow` rests the flower on a soft ground. The look is reworked, so a given seed now grows a new flower; the API is otherwise unchanged.
+- Added a key light, stronger throat color and finer fiber texture.
+- Improved pale edges on light backgrounds and added the opt-in `glow` ground treatment.
+- Changed the rendered result for existing seeds without changing the API.
 
 ## 0.1.0
 
-First release. A deterministic, dependency-free plumeria: the same seed draws the same SVG flower, light or dark, with an opt-in opening animation.
+- Added deterministic, dependency-free plumeria SVG generation with light and dark themes and an opt-in opening animation.

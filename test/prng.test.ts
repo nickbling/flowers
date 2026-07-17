@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { between, createRng } from "../src/shared/prng";
+import { between, createRng } from "@/src/shared/prng";
 
 describe("createRng", () => {
   it("is deterministic for a seed", () => {
@@ -14,7 +14,7 @@ describe("createRng", () => {
 
   it("returns values in [0, 1)", () => {
     const rng = createRng("range");
-    for (let i = 0; i < 1000; i++) {
+    for (const _ of Array(1000)) {
       const v = rng();
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThan(1);
@@ -23,7 +23,7 @@ describe("createRng", () => {
 
   it("between stays within its bounds", () => {
     const rng = createRng("between");
-    for (let i = 0; i < 1000; i++) {
+    for (const _ of Array(1000)) {
       const v = between(rng, 5, 10);
       expect(v).toBeGreaterThanOrEqual(5);
       expect(v).toBeLessThan(10);

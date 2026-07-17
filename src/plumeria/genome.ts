@@ -1,13 +1,19 @@
-// Every flower is grown from a genome: a liveried palette sampled from one
-// of eight cultivar recipes (or, sometimes, a hybrid of two) plus a shared
-// morphology and a per-bloom exposure. Recipes are modeled on real
-// frangipani: Celadine, Rainbow, Pink Pearl, Sunset, Fuchsia, Gold, Candy
-// Stripe, Carmine. All tones live in OKLCH so every sampled value stays in
-// the same perceptual neighborhood as its recipe.
+import {
+  cultivarRecipe,
+  type PlumeriaCultivar,
+  type PlumeriaCultivarRecipe,
+} from "@/src/plumeria/cultivar";
+import {
+  type PlumeriaCultivarName,
+  type PlumeriaVariant,
+  resolvePlumeriaVariant,
+} from "@/src/plumeria/variants";
+import { mixTone, type Tone } from "@/src/shared/color";
+import { between, intBetween, type Rng } from "@/src/shared/prng";
 
-import { mixTone, type Tone } from "../shared/color";
-import { lerp } from "../shared/math";
-import { between, intBetween, type Rng } from "../shared/prng";
+function lerp(from: number, to: number, amount: number): number {
+  return from + (to - from) * amount;
+}
 
 type Span = readonly [number, number];
 type ToneSpan = { c: Span; h: Span; l: Span };
@@ -32,7 +38,7 @@ type Palette = Omit<Genome, "accent" | "cultivar" | "form">;
 
 type Recipe = {
   blush: { at: Span; strength: Span; tone: ToneSpan };
-  name: string;
+  name: PlumeriaCultivarName;
   body: { base: ToneSpan; tip: ToneSpan };
   margin: { strength: Span; tone: ToneSpan };
   throat: { flame: Span; rays: Span; reach: Span; tone: ToneSpan };
@@ -40,10 +46,10 @@ type Recipe = {
   weight: number;
 };
 
-// Hue spans are written as continuous numbers (348..372 means pink across
-// the 0° seam); rendering wraps them, mixTone already takes the short arc.
+type SampleableRecipe = Omit<Recipe, "name" | "weight">;
+
+// Continuous hue spans such as 348..372 cross the zero-degree seam.
 const CULTIVARS: readonly Recipe[] = [
-  // white petals, a wide cadmium heart
   {
     blush: {
       at: [0.7, 0.9],
@@ -71,7 +77,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 3,
   },
-  // cream body, orange heart, red rays, pink rim
   {
     blush: {
       at: [0.5, 0.78],
@@ -99,7 +104,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 3,
   },
-  // rose all over, small golden heart
   {
     blush: {
       at: [0.4, 0.7],
@@ -127,7 +131,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 2.2,
   },
-  // peach fading to coral, gold heart, pale rim
   {
     blush: {
       at: [0.5, 0.75],
@@ -155,7 +158,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 1.8,
   },
-  // magenta petals, ember heart, light washed center
   {
     blush: {
       at: [0.55, 0.8],
@@ -183,7 +185,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 1.5,
   },
-  // saturated yellow body rimmed in cream
   {
     blush: {
       at: [0.45, 0.7],
@@ -211,7 +212,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 1.5,
   },
-  // white star, yellow midrib reaching far, fuchsia rim
   {
     blush: {
       at: [0.75, 0.95],
@@ -239,7 +239,6 @@ const CULTIVARS: readonly Recipe[] = [
     },
     weight: 1,
   },
-  // carmine: saturated seaside red, small fiery heart, pale rosy rim
   {
     blush: {
       at: [0.6, 0.85],
@@ -270,6 +269,15 @@ const CULTIVARS: readonly Recipe[] = [
 ];
 
 const TOTAL_WEIGHT = CULTIVARS.reduce((sum, c) => sum + c.weight, 0);
+const CULTIVARS_BY_NAME = new Map(
+  CULTIVARS.map((cultivar) => [cultivar.name, cultivar])
+);
+
+function namedCultivar(name: PlumeriaCultivarName): Recipe {
+  const cultivar = CULTIVARS_BY_NAME.get(name);
+  if (!cultivar) throw new TypeError(`unsupported plumeria cultivar ${name}`);
+  return cultivar;
+}
 
 function pickCultivar(rng: Rng): Recipe {
   let target = rng() * TOTAL_WEIGHT;
@@ -279,8 +287,7 @@ function pickCultivar(rng: Rng): Recipe {
     if (target <= 0) return cultivar;
   }
 
-  // rng() < 1 and the weights sum to TOTAL_WEIGHT, so the loop always
-  // returns; this line only satisfies the return type.
+  // The loop is exhaustive because rng() is below one and the weights sum to TOTAL_WEIGHT.
   return CULTIVARS[0];
 }
 
@@ -292,7 +299,7 @@ function sampleTone(rng: Rng, span: ToneSpan): Tone {
   };
 }
 
-function samplePalette(rng: Rng, recipe: Recipe): Palette {
+function samplePalette(rng: Rng, recipe: SampleableRecipe): Palette {
   return {
     blush: {
       at: between(rng, ...recipe.blush.at),
@@ -348,9 +355,7 @@ function mixPalette(a: Palette, b: Palette, t: number): Palette {
   };
 }
 
-// One recipe never prints twice: exposure (pale and milky through deep and
-// saturated, biased gentle) plus a whole-flower hue drift, so harmony
-// survives but no pink repeats
+// Correlated shifts keep the sampled palette coherent.
 function expose(
   palette: Palette,
   sun: number,
@@ -367,32 +372,51 @@ function expose(
     blush: { ...palette.blush, tone: tone(palette.blush.tone) },
     body: { base: tone(palette.body.base), tip: tone(palette.body.tip) },
     margin: { ...palette.margin, tone: tone(palette.margin.tone) },
-    // the throat barely follows: even the palest bloom keeps its anchor
+    // Restrained throat exposure preserves the focal point in pale blooms.
     throat: { ...palette.throat, tone: tone(palette.throat.tone, 0.35) },
     veins: { ...palette.veins, tone: tone(palette.veins.tone) },
   };
 }
 
-// `moon` is how full tonight's moon is, 0..1. Full-moon blooms come out
-// pale and silvery.
-export function sampleGenome(rng: Rng, moon = 0): Genome {
-  const recipe = pickCultivar(rng);
+export function sampleGenome(
+  rng: Rng,
+  moon = 0,
+  custom?: PlumeriaCultivar,
+  requestedVariant?: PlumeriaVariant
+): Genome {
+  if (custom && requestedVariant)
+    throw new TypeError("plumeria cultivar and variant are mutually exclusive");
+  const variant = requestedVariant
+    ? resolvePlumeriaVariant(requestedVariant)
+    : undefined;
+  const customRecipe = custom ? cultivarRecipe(custom) : null;
+  const builtInRecipe = customRecipe
+    ? null
+    : variant
+      ? namedCultivar(variant.parents[0])
+      : pickCultivar(rng);
+  const recipe = customRecipe ?? builtInRecipe;
+  if (!recipe) throw new Error("a plumeria recipe is required");
   const palette = samplePalette(rng, recipe);
-  let cultivar = recipe.name;
+  let cultivar = custom?.name ?? builtInRecipe?.name ?? "custom";
   let hybrid = palette;
 
-  if (rng() < 0.22) {
+  if (builtInRecipe && variant?.kind === "hybrid") {
+    const mate = namedCultivar(variant.parents[1]);
+    const matePalette = samplePalette(rng, mate);
+    hybrid = mixPalette(palette, matePalette, between(rng, 0.3, 0.49));
+    cultivar = variant.name;
+  } else if (builtInRecipe && !variant && rng() < 0.22) {
     const mate = pickCultivar(rng);
     const matePalette = samplePalette(rng, mate);
     const t = between(rng, 0.3, 0.7);
     hybrid = mixPalette(palette, matePalette, t);
 
-    if (mate.name !== recipe.name) {
-      // dominant parent first
+    if (mate.name !== builtInRecipe.name) {
       cultivar =
         t < 0.5
-          ? `${recipe.name} × ${mate.name}`
-          : `${mate.name} × ${recipe.name}`;
+          ? `${builtInRecipe.name} × ${mate.name}`
+          : `${mate.name} × ${builtInRecipe.name}`;
     }
   }
 
@@ -403,29 +427,44 @@ export function sampleGenome(rng: Rng, moon = 0): Genome {
     between(rng, -6, 6)
   );
 
-  // Concave draw: slender corollas as common as plump ones, nature grows
-  // both, photo albums prove it
-  const fullness = 1 - rng() ** 0.8 * 0.9;
+  const fullness = customRecipe
+    ? between(rng, ...customRecipe.form.fullness)
+    : 1 - rng() ** 0.8 * 0.9;
+
+  const form = customRecipe
+    ? sampleCustomForm(rng, customRecipe, fullness)
+    : {
+        bend:
+          lerp(0.26, 0.09, fullness) *
+          between(rng, 0.8, 1.2) *
+          (rng() < 0.5 ? -1 : 1),
+        fullness,
+        length: between(rng, 172, 212) - 14 * fullness,
+        taper: Math.max(
+          rng() < 0.22 ? between(rng, 0.4, 0.8) : between(rng, 0, 0.35),
+          0.24 * fullness
+        ),
+      };
+  // Form precedes accent in the seed-to-specimen contract.
+  const accent = rng() < 0.35 ? intBetween(rng, 0, 4) : -1;
 
   return {
     ...exposed,
-    accent: rng() < 0.35 ? intBetween(rng, 0, 4) : -1,
+    accent,
     cultivar,
-    form: {
-      bend:
-        lerp(0.26, 0.09, fullness) *
-        between(rng, 0.8, 1.2) *
-        (rng() < 0.5 ? -1 : 1),
-      fullness,
-      // Plump corollas wear shorter petals, and no flower fills the frame
-      // to its edge
-      length: between(rng, 172, 212) - 14 * fullness,
-      // The plumper the corolla, the more its tips must assert: with none,
-      // full overlap melts the silhouette into a circle
-      taper: Math.max(
-        rng() < 0.22 ? between(rng, 0.4, 0.8) : between(rng, 0, 0.35),
-        0.24 * fullness
-      ),
-    },
+    form,
+  };
+}
+
+function sampleCustomForm(
+  rng: Rng,
+  recipe: PlumeriaCultivarRecipe,
+  fullness: number
+): Genome["form"] {
+  return {
+    bend: between(rng, ...recipe.form.bend),
+    fullness,
+    length: between(rng, ...recipe.form.length),
+    taper: between(rng, ...recipe.form.taper),
   };
 }

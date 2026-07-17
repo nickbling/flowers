@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>rendering flower workbench</title>
+    <style>
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        background: #100f0d;
+      }
+      form {
+        position: fixed;
+        z-index: 10;
+        top: 5px;
+        right: 110px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        color: #e9e5dc;
+        font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      input,
+      select,
+      button {
+        height: 28px;
+        border: 1px solid #ffffff24;
+        border-radius: 5px;
+        padding: 0 8px;
+        background: #211f1b;
+        color: inherit;
+        font: inherit;
+      }
+      input {
+        width: 140px;
+      }
+      button {
+        background: #f1eadb;
+        color: #171511;
+        cursor: pointer;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "@nbot/flowers": "/dist/index.mjs",
+          "@nbot/flowers/core": "/dist/core/index.mjs",
+          "@nbot/flowers/devkit/browser": "/dist/devkit/browser.mjs",
+          "@nbot/flowers/catalog": "/dist/catalog/index.mjs"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import { getPlumeriaVariant, plumeriaVariants } from "@nbot/flowers";
+      import {
+        catalogPack,
+        catalogStudies,
+        daisy,
+        daisyCultivars,
+        passionflower,
+        passionflowerCultivars,
+        sunflower,
+        sunflowerCultivars,
+      } from "@nbot/flowers/catalog";
+      import { flowerVariantId, grow } from "@nbot/flowers/core";
+      import {
+        createPlumeriaWorkbenchEntry,
+        mountFlowerWorkbench,
+      } from "@nbot/flowers/devkit/browser";
+
+      const query = new URLSearchParams(location.search);
+      if (query.has("eager-frames")) {
+        window.requestAnimationFrame = (callback) =>
+          window.setTimeout(() => callback(performance.now()), 0);
+        window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
+      }
+
+      const definitions = catalogPack.species;
+      const catalogGroups = [
+        { cultivars: daisyCultivars, species: daisy },
+        { cultivars: passionflowerCultivars, species: passionflower },
+        { cultivars: sunflowerCultivars, species: sunflower },
+      ];
+      const plumeriaCases = [
+        {
+          id: "reference",
+          intent: "white and yellow reference",
+          variant: getPlumeriaVariant("@nbot/flowers:plumeria/celadine"),
+        },
+        {
+          id: "pale",
+          intent: "pink-edged pale range",
+          variant: getPlumeriaVariant("@nbot/flowers:plumeria/pink-pearl"),
+        },
+        {
+          id: "saturated",
+          intent: "saturated carmine range",
+          variant: getPlumeriaVariant("@nbot/flowers:plumeria/carmine"),
+        },
+      ];
+      const requestedMode = query.get("mode");
+      const mode = requestedMode === "catalog" || requestedMode === "study"
+        ? requestedMode
+        : "seed";
+      const selectedSpecies = query.get("species");
+      const selectedCase = query.get("case");
+      const selectedVariant = query.get("variant");
+      const seed = query.get("seed") ?? "reference";
+      const size = Math.min(1024, Math.max(128, Number(query.get("size")) || 360));
+      const previewSamples = query.has("eager-frames") ? 4 : undefined;
+      const matchingDefinitions = definitions.filter((definition) =>
+        selectedSpecies ? definition.id.endsWith(`:${selectedSpecies}`) : true,
+      );
+      const matchingStudies = catalogStudies.filter((study) =>
+        selectedSpecies ? study.species.id.endsWith(`:${selectedSpecies}`) : true,
+      );
+      const catalogSpecimens = catalogGroups
+        .filter(({ species }) =>
+          selectedSpecies ? species.id.endsWith(`:${selectedSpecies}`) : true,
+        )
+        .flatMap(({ cultivars, species }) =>
+          cultivars
+            .filter((cultivar) => !selectedVariant || flowerVariantId(species, cultivar) === selectedVariant)
+            .map((cultivar) => ({
+              label: `${species.name} · ${cultivar.name}\n${flowerVariantId(species, cultivar)}`,
+              specimen: grow(species, { cultivar, seed: "reference" }),
+            })),
+        );
+      const specimens = mode === "catalog"
+        ? catalogSpecimens
+        : mode === "study"
+          ? matchingStudies.flatMap((study) =>
+            study.cases
+              .filter((entry) => !selectedCase || entry.id === selectedCase)
+              .map((entry) => ({
+                label: `${study.species.name} · ${entry.id}\n${entry.intent}`,
+                specimen: entry.specimen,
+              })),
+          )
+          : matchingDefinitions.map((definition) => ({
+            specimen: grow(definition, { seed }),
+          }));
+      const includePlumeria = !selectedSpecies || selectedSpecies === "plumeria";
+      const entries = includePlumeria
+        ? mode === "catalog"
+          ? plumeriaVariants
+              .filter((variant) => !selectedVariant || variant.id === selectedVariant)
+              .map((variant) =>
+                createPlumeriaWorkbenchEntry({
+                  label: `Plumeria · ${variant.name}\n${variant.id}`,
+                  samples: previewSamples ?? 8,
+                  seed: "reference",
+                  variant,
+                }),
+              )
+          : mode === "study"
+            ? plumeriaCases
+              .filter((entry) => !selectedCase || entry.id === selectedCase)
+              .map((entry) =>
+                createPlumeriaWorkbenchEntry({
+                  label: `Plumeria · ${entry.id}\n${entry.intent}`,
+                  samples: previewSamples,
+                  seed: "reference",
+                  variant: entry.variant,
+                }),
+              )
+            : [createPlumeriaWorkbenchEntry({ samples: previewSamples, seed })]
+        : [];
+
+      const form = document.createElement("form");
+      const select = (name, choices, selected) => {
+        const element = document.createElement("select");
+        element.name = name;
+        for (const [value, label] of choices) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          option.selected = value === selected;
+          element.append(option);
+        }
+        return element;
+      };
+      const modeInput = select("mode", [
+        ["seed", "Seed"],
+        ["catalog", "Catalog"],
+        ["study", "Boundary study"],
+      ], mode);
+      const speciesInput = select("species", [
+        ["", "All species"],
+        ...definitions.map((definition) => [definition.id.split(":").at(-1), definition.name]),
+        ["plumeria", "Plumeria"],
+      ], selectedSpecies ?? "");
+      form.append(modeInput, speciesInput);
+      if (mode === "study") {
+        const caseIds = [...new Set([
+          ...catalogStudies.flatMap((study) => study.cases.map((entry) => entry.id)),
+          ...plumeriaCases.map((entry) => entry.id),
+        ])];
+        form.append(select("case", [["", "All cases"], ...caseIds.map((id) => [id, id])], selectedCase ?? ""));
+      } else if (mode === "catalog") {
+        const variants = [
+          ...catalogGroups.flatMap(({ cultivars, species }) =>
+            cultivars.map((cultivar) => [flowerVariantId(species, cultivar), `${species.name} · ${cultivar.name}`]),
+          ),
+          ...plumeriaVariants.map((variant) => [variant.id, `Plumeria · ${variant.name}`]),
+        ].filter(([id]) => !selectedSpecies || id.includes(`:${selectedSpecies}/`));
+        form.append(select("variant", [["", "All variants"], ...variants], selectedVariant ?? ""));
+      } else {
+        const seedInput = document.createElement("input");
+        seedInput.name = "seed";
+        seedInput.placeholder = "seed";
+        seedInput.value = seed;
+        form.append(seedInput);
+      }
+      const submit = document.createElement("button");
+      submit.textContent = "Render";
+      form.append(submit);
+      document.body.append(form);
+
+      const workbench = mountFlowerWorkbench(document.body, {
+        ...(mode === "catalog"
+          ? {
+              glGrounds: ["gray"],
+              glViews: ["final"],
+              svgGrounds: ["gray"],
+            }
+          : mode === "study"
+          ? {
+              glGrounds: ["paper", "gray", "black"],
+              glViews: ["final"],
+              svgGrounds: ["gray"],
+            }
+          : {
+              glViews: query.get("views") === "final" ? ["final"] : undefined,
+            }),
+        size,
+        entries,
+        specimens,
+        title: mode === "catalog"
+          ? "Catalog"
+          : mode === "study"
+            ? "Boundary studies"
+            : `Seed · ${seed}`,
+      });
+
+      if (query.get("focus") === "gl") {
+        const focus = document.createElement("style");
+        focus.textContent = "section { grid-template-columns: 160px repeat(2, minmax(320px, 1fr)); } figure:not(.gl) { display: none; }";
+        workbench.element.shadowRoot.append(focus);
+      }
+
+      const reports = await workbench.media;
+      document.body.dataset.mediaIssues = String(reports.reduce((count, report) => count + report.issues.length, 0));
+      document.body.dataset.mediaReports = String(reports.length);
+      await workbench.ready;
+
+      const svgIds = [...workbench.element.shadowRoot.querySelectorAll("svg [id]")].map((element) => element.id);
+      document.body.dataset.duplicateSvgIds = String(svgIds.length - new Set(svgIds).size);
+      document.title = "ready";
+    </script>
+  </body>
+</html>
