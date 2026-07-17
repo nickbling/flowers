@@ -1,21 +1,19 @@
-// A petal lives in its own frame: base at the origin (the flower's
-// center), tip pointing up at -y, midrib bending along x = bend·L·t².
-// Each flank is a Beta kernel t^a·(1-t)^b offset along the midrib normal.
-// `over` is the broad shoulder that will cover the next petal, `under` the
-// slimmer flank that tucks beneath the previous one. That built-in
-// asymmetry is what makes five rotated copies read as a pinwheel instead
-// of a star.
+// A petal starts at the origin, points toward −y and follows x = bend·L·t².
+// Beta-kernel flanks offset its midrib; unequal `over` and `under` flanks
+// produce the shared pinwheel overlap.
 
-import { lerp } from "../shared/math";
-import { between, type Rng } from "../shared/prng";
-import type { Genome } from "./genome";
+import type { Genome } from "@/src/plumeria/genome";
+import { between, type Rng } from "@/src/shared/prng";
+
+function lerp(from: number, to: number, amount: number): number {
+  return from + (to - from) * amount;
+}
 
 type Flank = { a: number; b: number; phase: number; width: number };
 
 export type PetalForm = {
   bend: number;
-  // radians the raw geometry leans off vertical; every emitted point is
-  // counter-rotated by it, so the petal stands straight in its own frame
+  // Counter-rotation that aligns the asymmetric silhouette to portrait-up.
   lean: number;
   length: number;
   over: Flank;
@@ -38,25 +36,22 @@ export function petalForm(form: Genome["form"], rng: Rng): PetalForm {
     length,
     over: flank(
       0.9,
-      lerp(0.7, 1.08, form.taper),
+      lerp(0.5, 0.92, form.taper),
       lerp(0.3, 0.48, form.fullness)
     ),
     under: flank(
       1.15,
-      lerp(0.76, 1.14, form.taper),
+      lerp(0.54, 0.98, form.taper),
       lerp(0.21, 0.39, form.fullness)
     ),
     wave: between(rng, 0.9, 1.7),
   };
 
-  // Born straight: measure where the raw geometry leans, then bake the
-  // counter-rotation into the form itself, no correction downstream
-  raw.lean = (tipLean(raw) * Math.PI) / 180;
+  raw.lean = corollaLean(raw);
   return raw;
 }
 
-// Normalized so the kernel peaks at 1 regardless of the exponents:
-// the peak sits at t* = a/(a+b), in closed form
+// Normalize the Beta kernel at its closed-form maximum t* = a/(a+b).
 function kernel(t: number, { a, b }: Flank): number {
   const peak = a / (a + b);
   return (t ** a * (1 - t) ** b) / (peak ** a * (1 - peak) ** b);
@@ -78,10 +73,7 @@ function normal(f: PetalForm, t: number): [number, number] {
   return aligned(f, 1 / len, slope / len);
 }
 
-// Real margins undulate: a 2.5-wave ripple keeps the outline from reading
-// as laser-cut. Damped where the kernel peaks: the shoulder carries the
-// flower's silhouette and a bump there reads as a deformity, while the same
-// wave on the rising and falling edge reads as nature.
+// Dampen the 2.5-wave margin ripple at the silhouette-defining shoulder.
 function ripple(f: PetalForm, flank: Flank, t: number): number {
   return (
     f.wave *
@@ -89,6 +81,11 @@ function ripple(f: PetalForm, flank: Flank, t: number): number {
     Math.sin(Math.PI * t) *
     (1 - 0.65 * kernel(t, flank) ** 2)
   );
+}
+
+// Lamina half-width combines the Beta body and margin ripple.
+function flankOffset(f: PetalForm, flank: Flank, t: number): number {
+  return flank.width * kernel(t, flank) + ripple(f, flank, t);
 }
 
 function flankPoint(
@@ -100,9 +97,43 @@ function flankPoint(
 ): [number, number] {
   const [mx, my] = midrib(f, t);
   const [nx, ny] = normal(f, t);
-  const w =
-    side * (flank.width * kernel(t, flank) + ripple(f, flank, t) - inset);
+  const w = side * (flankOffset(f, flank, t) - inset);
   return [mx + nx * w, my + ny * w];
+}
+
+// `u` spans the local half-width from midrib (0) to outline (1).
+export function laminaPoint(
+  f: PetalForm,
+  side: 1 | -1,
+  t: number,
+  u: number
+): [number, number] {
+  const flank = side === 1 ? f.over : f.under;
+  const [mx, my] = midrib(f, t);
+  const [nx, ny] = normal(f, t);
+  const w = side * u * flankOffset(f, flank, t);
+  return [mx + nx * w, my + ny * w];
+}
+
+export function laminaBand(
+  f: PetalForm,
+  side: 1 | -1,
+  inner: number,
+  outer: number,
+  from = 0.08,
+  to = 0.94,
+  samples = 18
+): string {
+  const edge = (u: number, reverse: boolean) =>
+    Array.from({ length: samples + 1 }, (_, index) => {
+      const step = reverse ? samples - index : index;
+      const phase = (1 - Math.cos((Math.PI * step) / samples)) / 2;
+      return laminaPoint(f, side, from + (to - from) * phase, u);
+    });
+  return [...edge(outer, false), ...edge(inner, true)]
+    .map(([x, y], index) => `${index === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y)}`)
+    .join(" ")
+    .concat(" Z");
 }
 
 function fmt(value: number): number {
@@ -114,7 +145,7 @@ function closedPath(points: [number, number][]): string {
   const at = (i: number) => points[((i % n) + n) % n];
   let d = `M ${fmt(points[0][0])} ${fmt(points[0][1])}`;
 
-  for (let i = 0; i < n; i++) {
+  for (const [i] of points.entries()) {
     const [p0x, p0y] = at(i - 1);
     const [p1x, p1y] = at(i);
     const [p2x, p2y] = at(i + 1);
@@ -129,81 +160,114 @@ function closedPath(points: [number, number][]): string {
 export function petalOutline(f: PetalForm, samples = 20): string {
   const points: [number, number][] = [];
 
-  // Cosine spacing clusters samples at base and tip, where the Beta kernel
-  // curves hardest
+  // Cosine spacing resolves the high-curvature base and tip.
   const ease = (i: number) => (1 - Math.cos((Math.PI * i) / samples)) / 2;
 
-  for (let i = 0; i <= samples; i++) {
+  for (let i = 0; i <= samples; i += 1) {
     points.push(flankPoint(f, f.over, 1, ease(i)));
   }
-  for (let i = samples - 1; i >= 1; i--) {
+  for (let i = samples - 1; i >= 1; i -= 1) {
     points.push(flankPoint(f, f.under, -1, ease(i)));
   }
 
   return closedPath(points);
 }
 
-// The parabola x = bend·L·t², y = -L·t is exactly a quadratic Bézier with
-// control point (0, -L/2); Béziers are rotation-invariant, so the
-// straightened midrib is just its control points re-aligned
+// A five-petal silhouette is star-shaped around the hub. Its fifth complex
+// area moment has phase ∫eⁱ⁵θR(θ)⁷dθ: the exact orientation of the visible
+// five-fold mass. Aligning that phase to -π/2 puts a lobe at twelve o'clock
+// without trusting either the curved tip or the asymmetric petal centroid.
+export function corollaLean(f: PetalForm): number {
+  const bins = 3600;
+  const reach = new Float64Array(bins);
+  const cast = ([x, y]: [number, number]) => {
+    const angle = Math.atan2(y, x);
+    const bin = Math.round(((angle + Math.PI) / (2 * Math.PI)) * bins) % bins;
+    reach[bin] = Math.max(reach[bin], Math.hypot(x, y));
+  };
+
+  for (let i = 0; i <= bins; i += 1) {
+    const t = (1 - Math.cos((Math.PI * i) / bins)) / 2;
+    cast(laminaPoint(f, 1, t, 1));
+    cast(laminaPoint(f, -1, t, 1));
+  }
+
+  let real = 0;
+  let imaginary = 0;
+  const step = bins / 5;
+  for (let bin = 0; bin < bins; bin += 1) {
+    let radius = 0;
+    for (let petal = 0; petal < 5; petal += 1)
+      radius = Math.max(radius, reach[(bin + petal * step) % bins]);
+    const angle = -Math.PI + ((bin + 0.5) * 2 * Math.PI) / bins;
+    const weight = radius ** 7;
+    real += weight * Math.cos(5 * angle);
+    imaginary += weight * Math.sin(5 * angle);
+  }
+
+  const lean = (Math.atan2(imaginary, real) + Math.PI / 2) / 5;
+  const period = (2 * Math.PI) / 5;
+  return ((lean + period / 2) % period) - period / 2;
+}
+
+export type CorollaFrame = {
+  centerX: number;
+  centerY: number;
+  scale: number;
+};
+
+// Fit the complete five-petal silhouette once for both renderers.
+export function corollaFrame(
+  f: PetalForm,
+  viewport = 480,
+  padding = 18
+): CorollaFrame {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  const measure = (x: number, y: number) => {
+    for (let k = 0; k < 5; k += 1) {
+      const angle = (k * 2 * Math.PI) / 5;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const rx = x * cos - y * sin;
+      const ry = x * sin + y * cos;
+      minX = Math.min(minX, rx);
+      minY = Math.min(minY, ry);
+      maxX = Math.max(maxX, rx);
+      maxY = Math.max(maxY, ry);
+    }
+  };
+
+  for (let i = 0; i <= 180; i += 1) {
+    const t = (1 - Math.cos((Math.PI * i) / 180)) / 2;
+    measure(...laminaPoint(f, 1, t, 1));
+    measure(...laminaPoint(f, -1, t, 1));
+  }
+
+  return {
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+    scale: (viewport - 2 * padding) / Math.max(maxX - minX, maxY - minY),
+  };
+}
+
+// x = bend·L·t², y = −L·t is a quadratic Bézier with control (0, −L/2).
 export function midribPath(f: PetalForm): string {
   const [cx, cy] = aligned(f, 0, -f.length / 2);
   const [ex, ey] = aligned(f, f.bend * f.length, -f.length);
   return `M 0 0 Q ${fmt(cx)} ${fmt(cy)} ${fmt(ex)} ${fmt(ey)}`;
 }
 
-// The corolla is five 72°-rotated copies of one petal, and what the eye
-// reads as "how far the flower is turned" is the phase of the fifth angular
-// harmonic of that union's mass. Rotating every petal by δ turns the whole
-// flower by δ (the copies factor out), so the lean that zeroes that phase
-// stands the flower upright: the straightener and the ruler that checks it
-// are one and the same, with no constant to tune.
-//
-// A petal is star-shaped from the hub, so its silhouette is one reach R(ψ)
-// per direction. Sample that profile, take the five-fold union reach, and
-// integrate: because ∫∫ r·e^{i5φ} dA = ∫ e^{i5φ}·R³/3 dφ, the radius cube
-// is exact. The hub-side base is noisy but reaches little, so R³ all but
-// erases it; the separated tips, which carry the orientation, dominate.
-export function tipLean(f: PetalForm): number {
-  const reach = new Float64Array(360);
-  const cast = (x: number, y: number) => {
-    const deg = (Math.round((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
-    const r = Math.hypot(x, y);
-    if (r > reach[deg]) reach[deg] = r;
-  };
-  for (let i = 0; i <= 160; i++) cast(...flankPoint(f, f.over, 1, i / 160));
-  for (let i = 0; i <= 160; i++) cast(...flankPoint(f, f.under, -1, i / 160));
-  // close single-bin gaps the sampling skipped, so the profile is whole
-  for (let d = 0; d < 360; d++)
-    if (!reach[d] && reach[(d + 359) % 360] && reach[(d + 1) % 360])
-      reach[d] = (reach[(d + 359) % 360] + reach[(d + 1) % 360]) / 2;
-
-  let re = 0;
-  let im = 0;
-  for (let d = 0; d < 360; d++) {
-    let r = 0;
-    for (let k = 0; k < 5; k++) r = Math.max(r, reach[(d + 72 * k) % 360]);
-    const a5 = (5 * d * Math.PI) / 180;
-    const w = r * r * r;
-    re += w * Math.cos(a5);
-    im += w * Math.sin(a5);
-  }
-
-  // phase/5 gives a petal angle; +18° (= 90°/5) measures it off straight-up
-  // (-y), folded into (-36°, 36°].
-  const lean = (Math.atan2(im, re) * 180) / Math.PI / 5 + 18;
-  return ((((lean + 36) % 72) + 72) % 72) - 36;
-}
-
-// The colored margin of a real petal is no parallel band: it pools at the
-// head, thins away down the flanks, and its inner border wanders. Built as
-// a ring between the outline and a wandering inset of it.
+// Build the nonparallel margin as a ring between the outline and a varying inset.
 export function marginBand(f: PetalForm, rng: Rng, strength: number): string {
   const from = 0.3;
   const steps = 14;
   const depth = f.length * (0.045 + 0.075 * strength);
   const raw = Array.from({ length: steps + 1 }, () => between(rng, 0.45, 1.55));
-  // neighbor-averaged so the border wanders in curves, not steps
+  // Neighbor averaging keeps the inset continuous.
   const wander = raw.map(
     (v, i) => (v + raw[Math.max(0, i - 1)] + raw[Math.min(steps, i + 1)]) / 3
   );
@@ -215,7 +279,7 @@ export function marginBand(f: PetalForm, rng: Rng, strength: number): string {
     [f.under, -1],
     [f.over, 1],
   ] as const) {
-    for (let i = 0; i <= steps; i++) {
+    for (let i = 0; i <= steps; i += 1) {
       const k = side === -1 ? i : steps - i;
       const t = from + ((1 - from) * k) / steps;
       const head = Math.min(1, (t - from) / (0.96 - from)) ** 1.6;
@@ -231,9 +295,24 @@ export function marginBand(f: PetalForm, rng: Rng, strength: number): string {
     .join(" ")} Z`;
 }
 
-// A fan of veins per flank: each starts on the midrib near the base and
-// peels away toward its flank, dying out before `reach`. Drawn as
-// quadratics through three sampled points.
+// A narrow margin roll projects the GL flank without becoming a painted lobe.
+export function curlBand(f: PetalForm): string {
+  const steps = 18;
+  const outer: [number, number][] = [];
+  const inner: [number, number][] = [];
+
+  for (let i = 0; i <= steps; i += 1) {
+    const t = (1 - Math.cos((Math.PI * i) / steps)) / 2;
+    outer.push(laminaPoint(f, -1, t, 1));
+    inner.push(laminaPoint(f, -1, t, 0.88 - 0.04 * Math.sin(Math.PI * t) ** 2));
+  }
+
+  return `${[...outer, ...inner.reverse()]
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y)}`)
+    .join(" ")} Z`;
+}
+
+// Each vein is a quadratic from the lower midrib toward one flank.
 export function veinsPath(
   f: PetalForm,
   rng: Rng,
@@ -246,7 +325,7 @@ export function veinsPath(
   for (const side of [1, -1] as const) {
     const flank = side === 1 ? f.over : f.under;
 
-    for (let k = 1; k <= perFlank; k++) {
+    for (let k = 1; k <= perFlank; k += 1) {
       const tEnd = Math.min(0.9, reach * between(rng, 0.78, 1.06));
       const frac = (spread * (k - between(rng, 0, 0.35))) / (perFlank + 0.5);
 

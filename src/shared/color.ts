@@ -1,11 +1,35 @@
-// OKLCH to sRGB hex, so flowers can pick colors in a perceptually uniform
-// space (equal lightness steps look equal) and still render anywhere a hex
-// color does, OG images included. Out-of-gamut colors are mapped back by
-// walking chroma down until the color fits.
-
 export type Tone = { l: number; c: number; h: number };
 
 type LinearRgb = [number, number, number];
+
+function gammaDecode(channel: number): number {
+  return channel <= 0.04045
+    ? channel / 12.92
+    : ((channel + 0.055) / 1.055) ** 2.4;
+}
+
+export function fromHex(hex: string): Tone {
+  if (!/^#[0-9a-f]{6}$/i.test(hex))
+    throw new TypeError("color must be a six-digit hex value");
+
+  const channels = [1, 3, 5].map((start) =>
+    gammaDecode(Number.parseInt(hex.slice(start, start + 2), 16) / 255)
+  );
+  const [r, g, b] = channels;
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const lightness = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const labB = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const chroma = Math.hypot(a, labB);
+
+  return {
+    c: chroma < 1e-7 ? 0 : chroma,
+    h: chroma < 1e-7 ? 0 : ((Math.atan2(labB, a) * 180) / Math.PI + 360) % 360,
+    l: lightness,
+  };
+}
 
 function oklabToLinearSrgb(l: number, a: number, b: number): LinearRgb {
   const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
@@ -20,8 +44,7 @@ function oklabToLinearSrgb(l: number, a: number, b: number): LinearRgb {
 }
 
 function inGamut([r, g, b]: LinearRgb): boolean {
-  // linear-light rounding can nudge a legal channel a hair past 0 or 1;
-  // tolerate that so a valid color is not needlessly walked down a step
+  // Floating-point rounding can place an in-gamut channel just outside [0, 1].
   const eps = 1e-6;
   return (
     r >= -eps &&
@@ -45,13 +68,17 @@ function toHexChannel(channel: number): string {
 }
 
 export function oklch(lightness: number, chroma: number, hue: number): string {
+  if (![lightness, chroma, hue].every(Number.isFinite))
+    throw new TypeError("OKLCH channels must be finite");
+  const l = Math.min(1, Math.max(0, lightness));
   const hr = (((hue % 360) + 360) % 360) * (Math.PI / 180);
-  let c = Math.max(0, chroma);
-  let rgb = oklabToLinearSrgb(lightness, c * Math.cos(hr), c * Math.sin(hr));
+  // Cap pathological inputs without changing the established 0.004 gamut walk.
+  let c = Math.min(0.5, Math.max(0, chroma));
+  let rgb = oklabToLinearSrgb(l, c * Math.cos(hr), c * Math.sin(hr));
 
   while (c > 0 && !inGamut(rgb)) {
     c = Math.max(0, c - 0.004);
-    rgb = oklabToLinearSrgb(lightness, c * Math.cos(hr), c * Math.sin(hr));
+    rgb = oklabToLinearSrgb(l, c * Math.cos(hr), c * Math.sin(hr));
   }
 
   return `#${rgb.map(toHexChannel).join("")}`;
@@ -61,8 +88,7 @@ export function toHex({ l, c, h }: Tone): string {
   return oklch(l, c, h);
 }
 
-// Hue takes the shortest arc, so a white to pink blend never detours
-// through green the way a naive numeric lerp would
+// Use the shortest hue arc so neutral-to-pink blends do not pass through green.
 export function mixTone(a: Tone, b: Tone, t: number): Tone {
   const arc = (((b.h - a.h) % 360) + 540) % 360;
   return {

@@ -1,14 +1,12 @@
-// Deterministic randomness: the same seed string always produces the same
-// sequence, on every platform. xmur3 turns the seed into four 32-bit values
-// that initialize an sfc32 generator.
+// xmur3 gives sfc32 a platform-stable 128-bit state for each seed.
 
 export type Rng = () => number;
 
 function xmur3(input: string) {
   let h = 1779033703 ^ input.length;
 
-  for (let i = 0; i < input.length; i++) {
-    h = Math.imul(h ^ input.charCodeAt(i), 3432918353);
+  for (let index = 0; index < input.length; index += 1) {
+    h = Math.imul(h ^ input.charCodeAt(index), 3432918353);
     h = (h << 13) | (h >>> 19);
   }
 
@@ -42,8 +40,8 @@ export function createRng(seed: string): Rng {
   const next = xmur3(seed);
   const rng = sfc32(next(), next(), next(), next());
 
-  // Discard the first values, which correlate with similar seeds
-  for (let i = 0; i < 12; i++) rng();
+  // Warm up sfc32 to reduce correlation between nearby xmur3 states.
+  for (let index = 0; index < 12; index += 1) rng();
 
   return rng;
 }
