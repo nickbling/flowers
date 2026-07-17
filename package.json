@@ -102,7 +102,7 @@
     "@types/node": "^24.13.3",
     "@types/three": "^0.185.1",
     "three": "^0.185.1",
-    "tsdown": "^0.22.7",
+    "tsdown": "^0.22.9",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
