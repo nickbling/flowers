@@ -9,7 +9,7 @@ import {
   resolvePlumeriaVariant,
 } from "@/src/plumeria/variants";
 import { mixTone, type Tone } from "@/src/shared/color";
-import { between, intBetween, type Rng } from "@/src/shared/prng";
+import { between, type Rng } from "@/src/shared/prng";
 
 function lerp(from: number, to: number, amount: number): number {
   return from + (to - from) * amount;
@@ -19,7 +19,6 @@ type Span = readonly [number, number];
 type ToneSpan = { c: Span; h: Span; l: Span };
 
 export type Genome = {
-  accent: number;
   blush: { at: number; strength: number; tone: Tone };
   cultivar: string;
   body: { base: Tone; tip: Tone };
@@ -34,7 +33,7 @@ export type Genome = {
   veins: { strength: number; tone: Tone };
 };
 
-type Palette = Omit<Genome, "accent" | "cultivar" | "form">;
+type Palette = Omit<Genome, "cultivar" | "form">;
 
 type Recipe = {
   blush: { at: Span; strength: Span; tone: ToneSpan };
@@ -445,12 +444,8 @@ export function sampleGenome(
           0.24 * fullness
         ),
       };
-  // Form precedes accent in the seed-to-specimen contract.
-  const accent = rng() < 0.35 ? intBetween(rng, 0, 4) : -1;
-
   return {
     ...exposed,
-    accent,
     cultivar,
     form,
   };

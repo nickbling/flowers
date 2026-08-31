@@ -19,42 +19,42 @@ const CASES: readonly Readonly<{
   options: PlumeriaOptions;
 }>[] = [
   {
-    expected: "0508d02a9131c0d4",
+    expected: "6d9f0c0554273474",
     name: "reference",
     options: { seed: "2026-06-14" },
   },
   {
-    expected: "ae6c4594146dfb68",
+    expected: "e96646f85eea11c8",
     name: "bloom hooks",
     options: { seed: "2026-06-14", bloom: true },
   },
   {
-    expected: "952cb7581d6beccc",
+    expected: "b9bb8c4c2da97178",
     name: "ground glow",
     options: { seed: "2026-06-14", glow: true },
   },
   {
-    expected: "08f54774ffe487a7",
+    expected: "dedfe04d18e6591c",
     name: "cast shadow",
     options: { seed: "2026-06-14", shadow: true },
   },
   {
-    expected: "2feaceacc08a48a8",
+    expected: "2479d6ddd43c4e3f",
     name: "alternate seed",
     options: { seed: "hello" },
   },
   {
-    expected: "c0c6bfa15d5f5c5d",
+    expected: "fe070636e738b7c7",
     name: "dated moon exposure",
     options: { date: "1991-03-22", seed: "1991-03-22" },
   },
   {
-    expected: "1f215d7c7e06017d",
+    expected: "216c47a50b8a5e47",
     name: "full moon exposure",
     options: { date: "2000-01-21", seed: "2000-01-21" },
   },
   {
-    expected: "5b498c9736b06ca6",
+    expected: "fcfaba0675707d8b",
     name: "custom cultivar",
     options: { seed: "custom-alba", cultivar: ALBA },
   },

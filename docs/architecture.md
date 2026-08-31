@@ -34,13 +34,13 @@ Pigment is a declarative field evaluated by both renderers. Tissue describes bot
 
 ## Renderers
 
-The SVG renderer projects the model, orders visible geometry and emits a complete transparent document with inline paint-critical properties.
+The SVG renderer separates projection, pigment sampling and organ drawing, then emits a complete transparent document with inline paint-critical properties.
 
-The GL renderer creates closed surfaces, materials, camera and the botanical studio. It owns relief, shadow, translucency, accumulation and disposal.
+The GL renderer separates geometry, material and scene compilation. Generic flowers and Plumeria share one canvas, studio, accumulation and disposal lifecycle. PNG export owns its detached high-resolution canvas and always disposes that lifecycle before returning the encoded image.
 
 SVG is not generated from GL and GL is not generated from SVG. Both begin from the model because converting either finished medium would discard anatomy or material information.
 
-Plumeria keeps specialized SVG and GL implementations for its cyclic overlap and art-directed surface. Both implementations consume the same Plumeria specimen and follow the same visual standard as the generic renderers.
+Plumeria keeps specialized SVG and GL geometry for its cyclic overlap and art-directed surface. Both consume one immutable specimen for form and livery; only projection, tessellation and medium-specific tone mapping differ.
 
 ## Packages and revisions
 

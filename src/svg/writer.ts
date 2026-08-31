@@ -35,6 +35,14 @@ export function svgStyle(
     .join(";");
 }
 
+export function svgPaint(
+  fill: string,
+  stroke = "none",
+  extra: Readonly<Record<string, number | string | undefined>> = {}
+): string {
+  return svgStyle({ fill, stroke, ...extra });
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")

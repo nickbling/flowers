@@ -1,17 +1,11 @@
-export function number(value: number): string {
-  const rounded = Number(value.toPrecision(3));
+function significantNumber(value: number, precision: number): string {
+  const rounded = Number(value.toPrecision(precision));
   return Object.is(rounded, -0) ? "0" : String(rounded);
 }
 
-export function preciseNumber(value: number): string {
-  const rounded = Number(value.toPrecision(6));
-  return Object.is(rounded, -0) ? "0" : String(rounded);
-}
-
-export function instanceNumber(value: number): string {
-  const rounded = Number(value.toPrecision(4));
-  return Object.is(rounded, -0) ? "0" : String(rounded);
-}
+export const number = (value: number) => significantNumber(value, 3);
+export const preciseNumber = (value: number) => significantNumber(value, 6);
+export const instanceNumber = (value: number) => significantNumber(value, 4);
 
 export function spatialNumber(value: number, span: number): string {
   const tolerance = Math.max(

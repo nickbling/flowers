@@ -56,6 +56,19 @@ rendered.dispose();
 
 The SVG has one transparent colorway for every background. The GL render is matte, rounded and softly lit. The page owns the background in both cases.
 
+## Export a high-resolution PNG
+
+The GL entry point owns the temporary canvas, accumulation and cleanup required for export:
+
+```ts
+import { exportFlowerPng, exportPlumeriaPng } from "@nbot/flowers/gl";
+
+const flowerPng = await exportFlowerPng({ specimen });
+const plumeriaPng = await exportPlumeriaPng({ seed: "garden-42" });
+```
+
+Both functions return a transparent 2048 × 2048 PNG `Blob` by default. Pass `size` for a smaller image or `signal` to cancel. Download, storage and other application behavior remain the caller’s responsibility.
+
 The catalog exposes named cultivars and ordered cultivar lists. Plumeria exposes eight parent cultivars and every ordered two-parent cross through `plumeriaVariants` and `getPlumeriaVariant()`.
 
 ## Use SVG on a server
@@ -96,7 +109,7 @@ See [Authoring a species](docs/authoring-species.md) for a complete example. Ext
 | `@nbot/flowers/core` | Core API without renderers |
 | `@nbot/flowers/catalog` | Maintained species, cultivars and studies |
 | `@nbot/flowers/svg` | Generic SVG renderer |
-| `@nbot/flowers/gl` | Generic and Plumeria GL renderers |
+| `@nbot/flowers/gl` | Generic and Plumeria GL renderers and PNG export |
 | `@nbot/flowers/devkit` | Structural species contracts |
 | `@nbot/flowers/devkit/browser` | Cross-media checks and workbench |
 

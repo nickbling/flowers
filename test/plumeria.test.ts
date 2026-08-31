@@ -10,7 +10,6 @@ import {
   plumeriaVariants,
 } from "@/src";
 import { curlBand } from "@/src/plumeria/petal";
-import { sprout } from "@/src/plumeria/render";
 import { growPlumeria } from "@/src/plumeria/specimen";
 
 const ids = (svg: string) =>
@@ -47,7 +46,7 @@ describe("plumeria", () => {
   });
 
   it("keeps the painted edge roll narrow and subordinate", () => {
-    const form = sprout("8").form;
+    const form = growPlumeria("8").form;
     const coordinates = (path: string) =>
       [...path.matchAll(/-?\d+(?:\.\d+)?/g)].map(([value]) => Number(value));
     const band = coordinates(curlBand(form));
@@ -64,18 +63,8 @@ describe("plumeria", () => {
     expect(area).toBeLessThan(form.length ** 2 * 0.045);
 
     const svg = plumeria({ seed: "8" });
-    for (const key of ["lobe", "curl"]) {
-      const gradient = svg.match(
-        new RegExp(
-          `<linearGradient id="[^"]*${key}"[^>]*>[\\s\\S]*?</linearGradient>`
-        )
-      )?.[0];
-      const opacities = [
-        ...(gradient?.matchAll(/stop-opacity(?:="|:)([\d.]+)/g) ?? []),
-      ].map(([, opacity]) => Number(opacity));
-      expect(Math.max(...opacities)).toBeGreaterThan(0.1);
-      expect(Math.min(...opacities)).toBeLessThan(0.1);
-    }
+    expect(svg.match(/href="#[^"]*roll"/g)).toHaveLength(5);
+    expect(svg).toContain("fill-opacity:0.13");
   });
 
   it("lets the petal bases meet without a registration point", () => {
@@ -145,6 +134,15 @@ describe("plumeria", () => {
     for (const i of Array(5).keys()) {
       expect(hooked).toContain(` data-petal="${i}"`);
     }
+    expect(hooked.match(/data-petal=/g)).toHaveLength(10);
+    expect(hooked).toMatch(
+      /<g data-petal="4"[^>]*><g clip-path="url\(#p[^"]+-wedge\)"/
+    );
+    expect(
+      plumeria({ bloom: true, glow: true, seed, shadow: true }).match(
+        /data-fade=/g
+      )
+    ).toHaveLength(2);
     expect(hooked).toContain('data-corolla=""');
     expect(hooked).not.toMatch(/\sdata-[\w-]+(?=\s|>)/);
     expect(BLOOM_CSS).toContain("prefers-reduced-motion");

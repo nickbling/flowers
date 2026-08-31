@@ -20,17 +20,6 @@ import {
 } from "three";
 import type { FlowerBounds, Point3 } from "@/src/core/model";
 
-export const STUDIO_LIGHT = Object.freeze({
-  bounceIntensity: 0.2,
-  faceFillIntensity: 0.38,
-  hemisphereIntensity: 0.5,
-  keyAperture: 0.72,
-  keyIntensity: 1.59,
-  rimIntensity: 0.12,
-  skyIntensity: 0.72,
-  skyShadowIntensity: 0.3,
-});
-
 const QUAD_VERTEX = `
 precision highp float;
 attribute vec3 position;
@@ -82,7 +71,7 @@ void main() {
   gl_FragColor = vec4(c * acc.a, acc.a);
 }`;
 
-export const PLUMERIA_GL_RENDER_CONTRACT = Object.freeze({
+export const BOTANICAL_STUDIO = Object.freeze({
   accumulationFragment: ACCUMULATE_FRAGMENT,
   environment: Object.freeze({
     cool: Object.freeze([0xdf, 0xe6, 0xf2] as const),
@@ -91,6 +80,16 @@ export const PLUMERIA_GL_RENDER_CONTRACT = Object.freeze({
     width: 4,
   }),
   jitterNamespace: "studio",
+  light: Object.freeze({
+    bounceIntensity: 0.2,
+    faceFillIntensity: 0.38,
+    hemisphereIntensity: 0.5,
+    keyAperture: 0.72,
+    keyIntensity: 1.59,
+    rimIntensity: 0.12,
+    skyIntensity: 0.72,
+    skyShadowIntensity: 0.3,
+  }),
   pixelCeiling: 1536,
   pixelScale: 2,
   presentation: Object.freeze({
@@ -110,13 +109,12 @@ export const PLUMERIA_GL_RENDER_CONTRACT = Object.freeze({
     shadowFar: 8,
     shadowMapSize: 1024,
     shadowNear: 0.5,
-    shadowNormalBias: 0.022,
+    shadowNormalBias: 0.003,
     skyColor: "#dfe6f2",
     skyDistance: 3.2,
   }),
+  samples: 4,
 });
-
-export const BOTANICAL_STUDIO_SAMPLES = 4;
 
 export type BotanicalStudio = Readonly<{
   sample(random: () => number): void;
@@ -179,7 +177,7 @@ export function createBotanicalStudio({
   const keyBase = center.clone().addScaledVector(direction, keyDistance);
   const key = new SpotLight(
     "#fffaf3",
-    STUDIO_LIGHT.keyIntensity * (luminous ? 1.04 : 0.92),
+    BOTANICAL_STUDIO.light.keyIntensity * (luminous ? 1.04 : 0.92),
     0,
     0.58,
     0.9,
@@ -192,25 +190,25 @@ export function createBotanicalStudio({
   const hemisphere = new HemisphereLight(
     "#f5f8ff",
     "#fff2e8",
-    STUDIO_LIGHT.hemisphereIntensity * (luminous ? 1.06 : 1)
+    BOTANICAL_STUDIO.light.hemisphereIntensity * (luminous ? 1.06 : 1)
   );
   const face = new DirectionalLight(
     "#fffdf9",
-    STUDIO_LIGHT.faceFillIntensity * (luminous ? 1.15 : 1)
+    BOTANICAL_STUDIO.light.faceFillIntensity * (luminous ? 1.15 : 1)
   );
   face.position.copy(center).add(new Vector3(0, 0, extent * 2.4));
   face.target.position.copy(center);
   const rim = new DirectionalLight(
     "#ffffff",
-    STUDIO_LIGHT.rimIntensity * (luminous ? 1.25 : 1)
+    BOTANICAL_STUDIO.light.rimIntensity * (luminous ? 1.25 : 1)
   );
   rim.position.copy(center).add(new Vector3(0, 0, -extent * 1.8));
   rim.target.position.copy(center);
 
-  const sampled = PLUMERIA_GL_RENDER_CONTRACT.sampledLights;
+  const sampled = BOTANICAL_STUDIO.sampledLights;
   const sky = new DirectionalLight(
     sampled.skyColor,
-    STUDIO_LIGHT.skyIntensity * (luminous ? 1.04 : 1)
+    BOTANICAL_STUDIO.light.skyIntensity * (luminous ? 1.04 : 1)
   );
   sky.castShadow = true;
   sky.shadow.mapSize.set(sampled.shadowMapSize, sampled.shadowMapSize);
@@ -221,13 +219,13 @@ export function createBotanicalStudio({
   shadow.near = sampled.shadowNear * extent;
   shadow.far = sampled.shadowFar * extent;
   shadow.updateProjectionMatrix();
-  sky.shadow.normalBias = 0.003 * extent;
-  sky.shadow.intensity = STUDIO_LIGHT.skyShadowIntensity;
+  sky.shadow.normalBias = sampled.shadowNormalBias * extent;
+  sky.shadow.intensity = BOTANICAL_STUDIO.light.skyShadowIntensity;
   sky.target.position.copy(center);
 
   const bounce = new DirectionalLight(
     sampled.bounceColor,
-    STUDIO_LIGHT.bounceIntensity * (luminous ? 1.06 : 1)
+    BOTANICAL_STUDIO.light.bounceIntensity * (luminous ? 1.06 : 1)
   );
   bounce.target.position.copy(center);
 
@@ -260,7 +258,8 @@ export function createBotanicalStudio({
   const [keyU, keyV] = perpendicularBasis(keyAxis);
   return Object.freeze({
     sample(random: () => number) {
-      const radius = STUDIO_LIGHT.keyAperture * extent * Math.sqrt(random());
+      const radius =
+        BOTANICAL_STUDIO.light.keyAperture * extent * Math.sqrt(random());
       const angle = 2 * Math.PI * random();
       key.position
         .copy(keyBase)
@@ -285,7 +284,7 @@ export function createBotanicalStudio({
 export function createBotanicalEnvironment(
   renderer: WebGLRenderer
 ): WebGLRenderTarget {
-  const { cool, height, warm, width } = PLUMERIA_GL_RENDER_CONTRACT.environment;
+  const { cool, height, warm, width } = BOTANICAL_STUDIO.environment;
   const data = new Uint8Array(width * height * 4);
   for (const y of Array(height).keys()) {
     const progress = y / (height - 1);
@@ -332,24 +331,24 @@ export function createBotanicalPresentation(
   const geometry = new BufferGeometry();
   geometry.setAttribute(
     "position",
-    new BufferAttribute(new Float32Array(PLUMERIA_GL_RENDER_CONTRACT.quad), 3)
+    new BufferAttribute(new Float32Array(BOTANICAL_STUDIO.quad), 3)
   );
   const accumulationMaterial = new RawShaderMaterial({
     depthTest: false,
     depthWrite: false,
-    fragmentShader: PLUMERIA_GL_RENDER_CONTRACT.accumulationFragment,
+    fragmentShader: BOTANICAL_STUDIO.accumulationFragment,
     uniforms: {
       frameTex: { value: null },
       prevTex: { value: null },
       weight: { value: 1 },
     },
-    vertexShader: PLUMERIA_GL_RENDER_CONTRACT.quadVertex,
+    vertexShader: BOTANICAL_STUDIO.quadVertex,
   });
-  const presentation = PLUMERIA_GL_RENDER_CONTRACT.presentation;
+  const presentation = BOTANICAL_STUDIO.presentation;
   const presentationMaterial = new RawShaderMaterial({
     depthTest: false,
     depthWrite: false,
-    fragmentShader: PLUMERIA_GL_RENDER_CONTRACT.presentationFragment,
+    fragmentShader: BOTANICAL_STUDIO.presentationFragment,
     uniforms: {
       accTex: { value: null },
       exposure: {
@@ -366,7 +365,7 @@ export function createBotanicalPresentation(
             : presentation.softSaturation,
       },
     },
-    vertexShader: PLUMERIA_GL_RENDER_CONTRACT.quadVertex,
+    vertexShader: BOTANICAL_STUDIO.quadVertex,
   });
   const accumulationScene = new Scene();
   accumulationScene.add(new Mesh(geometry, accumulationMaterial));

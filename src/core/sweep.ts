@@ -1,5 +1,7 @@
 import type { Point3 } from "@/src/core/model";
 
+export const SWEEP_CAP_SEGMENTS = 3;
+
 export type SweepFrame = Readonly<{
   binormal: Point3;
   center: Point3;

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- Added transparent high resolution PNG export for generic flowers and Plumeria through `@nbot/flowers/gl`.
+- Added export cancellation and automatic WebGL cleanup.
+
+### Changed
+
+- Shared Plumeria form, pigment and livery data across SVG and GL.
+- Improved Plumeria petal thickness, relief and physical overlap.
+- Reduced the default GL studio render to four samples.
+- Split SVG and GL rendering into focused geometry, pigment, material, scene and lifecycle modules.
+- Cached frozen specimen audits and skipped unused pigment feature work.
+- Aligned rounded sweep ends in SVG and GL.
+
+### Fixed
+
+- Fixed Plumeria bloom fragments appearing before their petal opened.
+- Fixed moon exposure changing physical relief and fiber detail.
+- Fixed WebGL cancellation and progress callback cleanup.
+
 ## 1.0.0
 
 ### Breaking changes

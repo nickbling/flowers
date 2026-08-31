@@ -1,3 +1,5 @@
+import type { Point2 } from "@/src/core/model";
+
 export function catmullRomControls(
   p0: number,
   p1: number,
@@ -5,6 +7,41 @@ export function catmullRomControls(
   p3: number
 ): readonly [first: number, second: number] {
   return [p1 + (p2 - p0) / 6, p2 - (p3 - p1) / 6];
+}
+
+export function polylineDistance(
+  point: Point2,
+  points: readonly Point2[],
+  closed = false
+): number {
+  let distance = Number.POSITIVE_INFINITY;
+  const segments = closed ? points.length : points.length - 1;
+  for (let index = 0; index < segments; index += 1) {
+    const from = points[index];
+    const to = points[(index + 1) % points.length];
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const amount =
+      lengthSquared === 0
+        ? 0
+        : Math.min(
+            1,
+            Math.max(
+              0,
+              ((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) /
+                lengthSquared
+            )
+          );
+    distance = Math.min(
+      distance,
+      Math.hypot(
+        point[0] - (from[0] + dx * amount),
+        point[1] - (from[1] + dy * amount)
+      )
+    );
+  }
+  return distance;
 }
 
 export function cubicBezierValue(

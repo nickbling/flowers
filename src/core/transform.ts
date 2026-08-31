@@ -1,4 +1,4 @@
-import type { Matrix4 } from "@/src/core/model";
+import type { Matrix4, Point3 } from "@/src/core/model";
 
 const matrix = (values: readonly number[]): Matrix4 =>
   Object.freeze([...values]) as Matrix4;
@@ -14,6 +14,15 @@ export function multiplyTransforms(a: Matrix4, b: Matrix4): Matrix4 {
       for (let inner = 0; inner < 4; inner += 1)
         result[column * 4 + row] += a[inner * 4 + row] * b[column * 4 + inner];
   return matrix(result);
+}
+
+export function transformPoint(transform: Matrix4, point: Point3): Point3 {
+  const [x, y, z] = point;
+  return [
+    transform[0] * x + transform[4] * y + transform[8] * z + transform[12],
+    transform[1] * x + transform[5] * y + transform[9] * z + transform[13],
+    transform[2] * x + transform[6] * y + transform[10] * z + transform[14],
+  ];
 }
 
 function finite(value: number, name: string): number {

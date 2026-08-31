@@ -56,12 +56,90 @@ try {
           : ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"]),
         "--hide-scrollbars",
       ],
-      expression: `(() => {
+      expression: `(async () => {
         const host = document.querySelector("div[data-specimens]");
+        const gl = await import("/dist/gl/index.mjs");
+        let blob;
+        let progressFailure = "";
+        let abortRejected = false;
+        let disposedBeforeBuild = false;
+        if (${JSON.stringify(species)} === "daisy") {
+          const [{ grow }, { daisy }] = await Promise.all([
+            import("/dist/core/index.mjs"),
+            import("/dist/catalog/index.mjs"),
+          ]);
+          const specimen = grow(daisy, { seed: "browser-export" });
+          blob = await gl.exportFlowerPng({ size: 256, specimen });
+          try {
+            await gl.exportFlowerPng({
+              onProgress(progress) {
+                if (progress.phase === "ready")
+                  throw new Error("progress callback failed");
+              },
+              size: 64,
+              specimen,
+            });
+          } catch (error) {
+            progressFailure = error instanceof Error ? error.message : String(error);
+          }
+          let modelReads = 0;
+          const observed = new Proxy(specimen, {
+            get(target, key, receiver) {
+              if (key === "model") modelReads += 1;
+              return Reflect.get(target, key, receiver);
+            },
+          });
+          let lifecycle;
+          lifecycle = gl.renderFlower({
+            canvas: document.createElement("canvas"),
+            onProgress(progress) {
+              if (progress.phase === "building") lifecycle.dispose();
+            },
+            size: 64,
+            specimen: observed,
+          });
+          await lifecycle.ready;
+          disposedBeforeBuild = lifecycle.phase === "disposed" && modelReads === 0;
+        } else {
+          blob = await gl.exportPlumeriaPng({
+            seed: "browser-export",
+            size: 256,
+          });
+          const controller = new AbortController();
+          const pending = gl.exportPlumeriaPng({
+            seed: "browser-export",
+            signal: controller.signal,
+            size: 64,
+          });
+          controller.abort(new Error("export aborted"));
+          try {
+            await pending;
+          } catch (error) {
+            abortRejected = error === controller.signal.reason;
+          }
+        }
+        const image = await createImageBitmap(blob);
+        const probe = document.createElement("canvas");
+        probe.width = image.width;
+        probe.height = image.height;
+        const context = probe.getContext("2d");
+        context.drawImage(image, 0, 0);
+        const cornerAlpha = context.getImageData(0, 0, 1, 1).data[3];
+        image.close();
+        const png = new Uint8Array(await blob.arrayBuffer());
+        const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
         return {
+          abortRejected,
+          cornerAlpha,
+          disposedBeforeBuild,
           duplicateSvgIds: Number(document.body.dataset.duplicateSvgIds),
           mediaIssues: Number(document.body.dataset.mediaIssues),
           mediaReports: Number(document.body.dataset.mediaReports),
+          pngBytes: png.byteLength,
+          pngHeight: view.getUint32(20),
+          pngType: blob.type,
+          pngWidth: view.getUint32(16),
+          progressFailure,
           ready: host?.dataset.ready,
           specimens: Number(host?.dataset.specimens),
         };
@@ -83,7 +161,16 @@ try {
       result.specimens !== 1 ||
       result.mediaReports !== 1 ||
       result.mediaIssues !== 0 ||
-      result.duplicateSvgIds !== 0
+      result.duplicateSvgIds !== 0 ||
+      result.cornerAlpha !== 0 ||
+      result.pngType !== "image/png" ||
+      result.pngWidth !== 256 ||
+      result.pngHeight !== 256 ||
+      result.pngBytes < 5_000 ||
+      (species === "daisy" &&
+        (result.progressFailure !== "progress callback failed" ||
+          !result.disposedBeforeBuild)) ||
+      (species === "plumeria" && !result.abortRejected)
     )
       throw new Error(
         `${species} workbench contract failed: ${JSON.stringify(result)}`

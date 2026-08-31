@@ -6,21 +6,26 @@ import {
   Light,
   Mesh,
   MeshPhysicalMaterial,
-  type Scene,
+  OrthographicCamera,
+  Scene,
   SpotLight,
   type Texture,
 } from "three";
 import { describe, expect, it } from "vitest";
 import { cultivar } from "@/src";
-import { plumeriaScene, renderPlumeria } from "@/src/gl";
+import { exportPlumeriaPng, plumeriaScene, renderPlumeria } from "@/src/gl";
 import {
   petalGeometry,
   type Relief,
   radialCupProfile,
   sampleRelief,
-  throatWeight,
 } from "@/src/gl/loft";
-import { PLUMERIA_GL_RENDER_CONTRACT, STUDIO_LIGHT } from "@/src/gl/studio";
+import {
+  type Accumulation,
+  accumulate,
+  type RenderSurface,
+} from "@/src/gl/rendering";
+import { BOTANICAL_STUDIO } from "@/src/gl/studio";
 import { sampleGenome } from "@/src/plumeria/genome";
 import {
   corollaFrame,
@@ -29,8 +34,12 @@ import {
   midrib,
   petalForm,
 } from "@/src/plumeria/petal";
-import { throatExtent, throatRayExtent } from "@/src/plumeria/pigment";
-import { sprout } from "@/src/plumeria/render";
+import {
+  throatExtent,
+  throatRayExtent,
+  throatWeight,
+} from "@/src/plumeria/pigment";
+import { growPlumeria } from "@/src/plumeria/specimen";
 import { createRng } from "@/src/shared/prng";
 
 // Vitest owns pure scene contracts; test/browser.mjs exercises the renderer.
@@ -70,16 +79,8 @@ function lightEnergy(scene: Scene): number {
 }
 
 function geometryWith(relief: Relief): BufferGeometry {
-  const grown = sprout(seed);
-  return petalGeometry(grown.form, relief, grown.genome, {
-    blush2At: grown.blush2At,
-    blush2Mix: grown.blush2Mix,
-    blush2Opacity: grown.blush2Opacity,
-    blush2Width: grown.blush2Width,
-    halo: grown.halo,
-    stripeSide: grown.stripeSide,
-    stripy: grown.stripeVisible,
-  });
+  const grown = growPlumeria(seed);
+  return petalGeometry(grown.form, relief, grown.genome, grown.livery);
 }
 
 function zAt(
@@ -111,8 +112,8 @@ describe("plumeriaScene", () => {
   });
 
   it("freezes the renderer-owned studio contract", () => {
-    expect(Object.isFrozen(STUDIO_LIGHT)).toBe(true);
-    expect(Object.isFrozen(PLUMERIA_GL_RENDER_CONTRACT)).toBe(true);
+    expect(Object.isFrozen(BOTANICAL_STUDIO)).toBe(true);
+    expect(Object.isFrozen(BOTANICAL_STUDIO.light)).toBe(true);
   });
 
   it("is deterministic for a given seed", () => {
@@ -126,6 +127,49 @@ describe("plumeriaScene", () => {
       textureData(material(b.scene).bumpMap)
     );
     expect(a.cultivar).toBe(b.cultivar);
+  });
+
+  it("owns and idempotently disposes its resources", () => {
+    const built = plumeriaScene({ seed });
+    const petal = petals(built.scene)[0];
+    const skin = material(built.scene);
+    const counts = { geometry: 0, material: 0, texture: 0 };
+    petal.geometry.addEventListener("dispose", () => {
+      counts.geometry += 1;
+    });
+    skin.addEventListener("dispose", () => {
+      counts.material += 1;
+    });
+    skin.bumpMap?.addEventListener("dispose", () => {
+      counts.texture += 1;
+    });
+
+    built.dispose();
+    built.dispose();
+
+    expect(counts).toEqual({ geometry: 1, material: 1, texture: 1 });
+    expect(built.scene.children).toHaveLength(0);
+  });
+
+  it("keeps physical detail fixed when moonlight only pales pigment", () => {
+    const ordinary = plumeriaScene({ seed });
+    const moonlit = plumeriaScene({ date: "2000-01-21", seed });
+
+    expect(attribute(moonlit.scene, "position")).toEqual(
+      attribute(ordinary.scene, "position")
+    );
+    expect(attribute(moonlit.scene, "normal")).toEqual(
+      attribute(ordinary.scene, "normal")
+    );
+    expect(textureData(material(moonlit.scene).bumpMap)).toEqual(
+      textureData(material(ordinary.scene).bumpMap)
+    );
+    expect(attribute(moonlit.scene, "color")).not.toEqual(
+      attribute(ordinary.scene, "color")
+    );
+
+    ordinary.dispose();
+    moonlit.dispose();
   });
 
   it("changes with the seed", () => {
@@ -163,8 +207,10 @@ describe("plumeriaScene", () => {
   });
 
   it("fits every flower to the same structural frame", () => {
-    const small = plumeriaScene({ seed: "23" });
-    const large = plumeriaScene({ seed: "1" });
+    const flowers = ["23", "1"]
+      .map((seedValue) => plumeriaScene({ seed: seedValue }))
+      .sort((a, b) => a.length - b.length);
+    const [small, large] = flowers;
 
     expect(small.length).toBeLessThan(large.length);
     expect(small.camera.right - small.camera.left).toBeLessThan(
@@ -219,7 +265,7 @@ describe("plumeriaScene", () => {
     const geometry = petals(plumeriaScene({ seed }).scene)[0].geometry;
     const uv = geometry.getAttribute("uv");
     const position = geometry.getAttribute("position");
-    const form = sprout(seed).form;
+    const form = growPlumeria(seed).form;
     const [tx, ty] = midrib(form, 1);
     let found = false;
 
@@ -240,7 +286,7 @@ describe("plumeriaScene", () => {
     const geometry = petals(plumeriaScene({ seed }).scene)[0].geometry;
     const uv = geometry.getAttribute("uv");
     const position = geometry.getAttribute("position");
-    const form = sprout(seed).form;
+    const form = growPlumeria(seed).form;
     let checked = 0;
 
     for (const k of Array(uv.count).keys()) {
@@ -369,6 +415,7 @@ describe("petal relief", () => {
   const flat: Relief = {
     crownHeight: 0,
     cupRise: 0,
+    overlapSlope: 0,
     rimHalfThickness: 0,
     spoonCurl: 0,
   };
@@ -376,11 +423,11 @@ describe("petal relief", () => {
   it("samples a deep, fleshy shell", () => {
     for (const fullness of [0, 0.5, 1]) {
       const relief = sampleRelief(createRng(`relief-${fullness}`), fullness);
-      expect(relief.cupRise).toBeGreaterThanOrEqual(0.25);
-      expect(relief.cupRise).toBeLessThanOrEqual(0.31);
-      expect(relief.crownHeight).toBeCloseTo(0.24 + 0.14 * fullness, 10);
-      expect(relief.rimHalfThickness).toBeGreaterThanOrEqual(0.28);
-      expect(relief.rimHalfThickness).toBeLessThanOrEqual(0.34);
+      expect(relief.cupRise).toBeGreaterThanOrEqual(0.1);
+      expect(relief.cupRise).toBeLessThanOrEqual(0.14);
+      expect(relief.crownHeight).toBeCloseTo(0.12 + 0.06 * fullness, 10);
+      expect(relief.rimHalfThickness).toBeGreaterThanOrEqual(0.045);
+      expect(relief.rimHalfThickness).toBeLessThanOrEqual(0.065);
     }
 
     const geometry = geometryWith(sampleRelief(createRng("relief-depth"), 0.5));
@@ -391,7 +438,7 @@ describe("petal relief", () => {
     const y = bounds.max.y - bounds.min.y;
     const z = bounds.max.z - bounds.min.z;
 
-    expect(z / Math.max(x, y)).toBeGreaterThan(0.2);
+    expect(z / Math.max(x, y)).toBeGreaterThan(0.08);
   });
 
   it("raises the blade radially from its meeting point", () => {
@@ -438,12 +485,54 @@ describe("petal relief", () => {
   });
 });
 
+describe("accumulation lifecycle", () => {
+  it("can cancel reentrantly from its first completed frame", async () => {
+    let presentations = 0;
+    let run!: Accumulation;
+    run = accumulate({
+      camera: new OrthographicCamera(),
+      onFrame: () => run.cancel(),
+      random: () => 0.5,
+      samples: 4,
+      scene: new Scene(),
+      studio: { sample() {} },
+      surface: {
+        pixelSize: 1,
+        present() {
+          presentations += 1;
+        },
+      } as unknown as RenderSurface,
+    });
+
+    await run.ready;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(presentations).toBe(1);
+  });
+});
+
 describe("renderPlumeria options", () => {
   const canvas = {} as HTMLCanvasElement;
 
-  for (const size of [0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1025]) {
+  it("shares the four-frame studio default", () => {
+    expect(BOTANICAL_STUDIO.samples).toBe(4);
+  });
+
+  it("validates export resolution before requesting a browser canvas", () => {
+    expect(() => exportPlumeriaPng({ seed, size: 2049 })).toThrow(RangeError);
+  });
+
+  for (const size of [0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2049]) {
     it(`rejects size ${size}`, () => {
       expect(() => renderPlumeria({ canvas, seed, size })).toThrow(RangeError);
+    });
+  }
+
+  for (const pixelSize of [0, 1.5, Number.NaN, 2049]) {
+    it(`rejects pixelSize ${pixelSize}`, () => {
+      expect(() => renderPlumeria({ canvas, pixelSize, seed })).toThrow(
+        RangeError
+      );
     });
   }
 
@@ -482,12 +571,12 @@ describe("laminaPoint", () => {
 
   it("puts the corolla's visible five-fold mass upright", () => {
     for (const seedValue of ["2", "5", "1", "6", "8", "23"])
-      expect(corollaLean(sprout(seedValue).form)).toBeCloseTo(0, 3);
+      expect(corollaLean(growPlumeria(seedValue).form)).toBeCloseTo(0, 3);
   });
 
   it("fits the complete corolla to a finite box", () => {
     for (const seedValue of ["2", "5", "1", "6", "8", "23"]) {
-      const grown = sprout(seedValue);
+      const grown = growPlumeria(seedValue);
       const frame = corollaFrame(grown.form);
       const xs: number[] = [];
       const ys: number[] = [];
@@ -594,7 +683,7 @@ describe("gl vectors", () => {
         skin.onBeforeCompile.toString(),
       ].join(",")
     );
-    hash.update(JSON.stringify(STUDIO_LIGHT));
+    hash.update(JSON.stringify(BOTANICAL_STUDIO.light));
     hash.update(
       [
         grown.camera.left,
@@ -635,20 +724,20 @@ describe("gl vectors", () => {
     });
     const hash = createHash("sha256");
     hash.update(fingerprint(seedValue));
-    hash.update(JSON.stringify(PLUMERIA_GL_RENDER_CONTRACT));
+    hash.update(JSON.stringify(BOTANICAL_STUDIO));
     hash.update(JSON.stringify(lights));
     return hash.digest("hex").slice(0, 16);
   };
 
   const cases = [
     {
-      image: "a7dde7a5dd5cc2c6",
-      scene: "fef1151bf5000fb7",
+      image: "de2dfa34c9ab08ae",
+      scene: "d681b48b7e2454e6",
       seed: "2026-06-14",
     },
     {
-      image: "5636ef831e1358a8",
-      scene: "b9edb268592291cb",
+      image: "b827ce62d4fad8de",
+      scene: "5f98f61f4c3e3ad0",
       seed: "hello",
     },
   ] as const;

@@ -25,6 +25,17 @@ export type AuditIssue = Readonly<{
   path: string;
 }>;
 
+const cache = new WeakMap<object, readonly AuditIssue[]>();
+
+function deeplyFrozen(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (!value || typeof value !== "object" || seen.has(value)) return true;
+  seen.add(value);
+  return (
+    Object.isFrozen(value) &&
+    Object.values(value).every((child) => deeplyFrozen(child, seen))
+  );
+}
+
 function report(
   issues: AuditIssue[],
   code: string,
@@ -708,6 +719,8 @@ function auditModel(model: FlowerModel, issues: AuditIssue[]): void {
 export function auditSpecimen<Traits>(
   specimen: FlowerSpecimen<Traits>
 ): readonly AuditIssue[] {
+  const cached = cache.get(specimen);
+  if (cached) return cached;
   const issues: AuditIssue[] = [];
   finite(specimen, "$", issues);
   if (
@@ -752,5 +765,7 @@ export function auditSpecimen<Traits>(
     );
   }
   auditModel(specimen.model, issues);
-  return Object.freeze(issues);
+  const result = Object.freeze(issues);
+  if (deeplyFrozen(specimen)) cache.set(specimen, result);
+  return result;
 }

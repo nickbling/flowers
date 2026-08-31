@@ -197,12 +197,25 @@ try {
     join(gl, "consumer.ts"),
     `
       import type { Scene } from "three";
-      import { flowerScene, renderFlower, renderPlumeria, type FlowerScene } from "@nbot/flowers/gl";
+      import { exportFlowerPng, exportPlumeriaPng, flowerScene, plumeriaScene, renderFlower, renderPlumeria, type FlowerScene, type PlumeriaScene } from "@nbot/flowers/gl";
       import { assertSpeciesMedia, mountFlowerWorkbench } from "@nbot/flowers/devkit/browser";
       declare const flower: FlowerScene;
       const scene: Scene = flower.scene;
+      declare const plumeriaCamera: PlumeriaScene["camera"];
+      const compatiblePlumeriaScene: PlumeriaScene = {
+        camera: plumeriaCamera,
+        cultivar: "custom",
+        length: 1,
+        scene,
+      };
+      type OwnedPlumeriaScene = ReturnType<typeof plumeriaScene>;
+      declare const ownedPlumeriaScene: OwnedPlumeriaScene;
+      ownedPlumeriaScene.dispose();
       void assertSpeciesMedia;
+      void exportFlowerPng;
+      void exportPlumeriaPng;
       void flowerScene;
+      void compatiblePlumeriaScene;
       void mountFlowerWorkbench;
       void renderFlower;
       void renderPlumeria;

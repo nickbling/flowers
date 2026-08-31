@@ -869,6 +869,15 @@ describe("renderSvg", () => {
     expect(group).toContain("-0.05");
     expect(group?.match(/fill:url\(/g)).toHaveLength(2);
     expect(group).toContain("fill:none");
+    const outline = [...(group?.matchAll(/<path d="([^"]+)"/g) ?? [])].at(
+      -1
+    )?.[1];
+    const coordinates = [
+      ...(outline?.matchAll(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi) ?? []),
+    ].map(([value]) => Number(value));
+    const ys = coordinates.filter((_, index) => index % 2 === 1);
+    expect(Math.min(...ys)).toBeCloseTo(-0.2, 6);
+    expect(Math.max(...ys)).toBeCloseTo(1.05, 6);
   });
 
   it("draws the same centripetal sweep centerline audited by core", () => {

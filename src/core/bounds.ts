@@ -12,21 +12,16 @@ import type {
   Point3,
 } from "@/src/core/model";
 import { sweepPoint, sweepRadius, sweepSegments } from "@/src/core/sweep";
-import { IDENTITY_TRANSFORM, multiplyTransforms } from "@/src/core/transform";
+import {
+  IDENTITY_TRANSFORM,
+  multiplyTransforms,
+  transformPoint,
+} from "@/src/core/transform";
 
 type MutableBounds = {
   maximum: [number, number, number];
   minimum: [number, number, number];
 };
-
-function transformPoint(transform: Matrix4, point: Point3): Point3 {
-  const [x, y, z] = point;
-  return [
-    transform[0] * x + transform[4] * y + transform[8] * z + transform[12],
-    transform[1] * x + transform[5] * y + transform[9] * z + transform[13],
-    transform[2] * x + transform[6] * y + transform[10] * z + transform[14],
-  ];
-}
 
 function includePoint(bounds: MutableBounds, point: Point3): void {
   if (point.some((value) => !Number.isFinite(value))) return;

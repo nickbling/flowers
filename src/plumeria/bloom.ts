@@ -1,19 +1,19 @@
-export type Bloom = {
-  petal: (i: number) => string;
-  fade: string;
-  openTag: string;
-  closeTag: string;
-};
+type Attributes = Readonly<Record<string, number | string>>;
 
-// Staggering preserves contact-shadow order while the petals open.
-const delayOf = (i: number) => 30 + i * 60;
+export type Bloom = Readonly<{
+  corolla: Attributes;
+  fade: Attributes;
+  petal(index: number): Attributes;
+}>;
 
-export const still: Bloom = {
-  petal: () => "",
-  fade: "",
-  openTag: "",
-  closeTag: "",
-};
+const delay = (index: number) => 30 + index * 60;
+const EMPTY = Object.freeze({});
+
+export const still: Bloom = Object.freeze({
+  corolla: EMPTY,
+  fade: EMPTY,
+  petal: () => EMPTY,
+});
 
 export const BLOOM_CSS =
   "@keyframes nbf-petal{from{opacity:0;transform:scale(.93)}45%{opacity:1}to{opacity:1;transform:none}}" +
@@ -26,12 +26,16 @@ export const BLOOM_CSS =
 
 export function bloom(center: number, cy: number, petals: number): Bloom {
   const origin = `transform-origin:${center}px ${cy}px`;
-
-  return {
-    petal: (i) =>
-      ` data-petal="${i}" style="${origin};--nbf-d:${delayOf(i)}ms"`,
-    fade: ` data-fade="" style="--nbf-d:${delayOf(petals - 1)}ms"`,
-    openTag: `<g data-corolla="" style="${origin}">`,
-    closeTag: "</g>",
-  };
+  return Object.freeze({
+    corolla: Object.freeze({ "data-corolla": "", style: origin }),
+    fade: Object.freeze({
+      "data-fade": "",
+      style: `--nbf-d:${delay(petals - 1)}ms`,
+    }),
+    petal: (index: number) =>
+      Object.freeze({
+        "data-petal": index,
+        style: `${origin};--nbf-d:${delay(index)}ms`,
+      }),
+  });
 }
