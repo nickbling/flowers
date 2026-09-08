@@ -17,6 +17,38 @@ import type { Rng } from "@/src/shared/prng";
 
 export const MAX_GL_PIXEL_SIZE = 2048;
 
+export type FlowerRenderPhase =
+  | "queued"
+  | "building"
+  | "compiling"
+  | "rendering"
+  | "ready"
+  | "disposed"
+  | "failed";
+
+export type FlowerRenderProgress = Readonly<{
+  completed?: number;
+  phase: FlowerRenderPhase;
+  total?: number;
+}>;
+
+export type RenderOptions = {
+  canvas: HTMLCanvasElement | OffscreenCanvas;
+  onProgress?: (progress: FlowerRenderProgress) => void;
+  /** Backing-buffer width and height. Defaults to the studio sampling scale. */
+  pixelSize?: number;
+  signal?: AbortSignal;
+  /** Rendered square size in CSS pixels. */
+  size?: number;
+};
+
+export type RenderedFlower = Readonly<{
+  dispose(): void;
+  readonly phase: FlowerRenderPhase;
+  /** Resolves after accumulation, or early when disposal cancels it. */
+  ready: Promise<void>;
+}>;
+
 export type RenderSurface = Readonly<{
   dispose(): void;
   pixelSize: number;
@@ -125,6 +157,21 @@ type AccumulationOptions = Readonly<{
   surface: RenderSurface;
 }>;
 
+function scheduleFrame(callback: () => void): () => void {
+  if (
+    typeof requestAnimationFrame === "function" &&
+    (typeof document === "undefined" || document.visibilityState !== "hidden")
+  ) {
+    const frame = requestAnimationFrame(callback);
+    return () => {
+      if (typeof cancelAnimationFrame === "function")
+        cancelAnimationFrame(frame);
+    };
+  }
+  const timer = setTimeout(callback, 0);
+  return () => clearTimeout(timer);
+}
+
 export function accumulate({
   camera,
   onFrame,
@@ -134,8 +181,7 @@ export function accumulate({
   studio,
   surface,
 }: AccumulationOptions): Accumulation {
-  let animationFrame = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let unschedule: (() => void) | undefined;
   let completed = 0;
   let settled = false;
   let resolveReady!: () => void;
@@ -149,15 +195,8 @@ export function accumulate({
     settled = true;
     resolveReady();
   };
-  const clearSchedule = () => {
-    if (animationFrame && typeof cancelAnimationFrame === "function")
-      cancelAnimationFrame(animationFrame);
-    if (timer !== undefined) clearTimeout(timer);
-    animationFrame = 0;
-    timer = undefined;
-  };
   const render = () => {
-    clearSchedule();
+    unschedule = undefined;
     if (settled) return;
     try {
       studio.sample(random);
@@ -175,13 +214,7 @@ export function accumulate({
       onFrame?.(completed);
       if (settled) return;
       if (completed === samples) finish();
-      else if (
-        typeof requestAnimationFrame === "function" &&
-        (typeof document === "undefined" ||
-          document.visibilityState !== "hidden")
-      )
-        animationFrame = requestAnimationFrame(render);
-      else timer = setTimeout(render, 0);
+      else unschedule = scheduleFrame(render);
     } catch (error) {
       camera.clearViewOffset();
       settled = true;
@@ -191,9 +224,175 @@ export function accumulate({
   queueMicrotask(render);
   return Object.freeze({
     cancel() {
-      clearSchedule();
+      unschedule?.();
+      unschedule = undefined;
       finish();
     },
     ready,
   });
+}
+
+type RenderSceneOptions = RenderOptions &
+  Readonly<{
+    build(): Omit<AccumulationOptions, "onFrame" | "samples" | "surface"> & {
+      dispose(): void;
+    };
+    look?: RenderSurfaceOptions["look"];
+    preserveDrawingBuffer?: boolean;
+    samples?: number;
+  }>;
+
+export function renderScene({
+  build,
+  canvas,
+  look = "luminous",
+  onProgress,
+  pixelSize,
+  preserveDrawingBuffer = false,
+  samples = BOTANICAL_STUDIO.samples,
+  signal,
+  size = 480,
+}: RenderSceneOptions): RenderedFlower {
+  if (!Number.isSafeInteger(size) || size < 1 || size > MAX_GL_PIXEL_SIZE)
+    throw new RangeError(
+      `GL size must be an integer from 1 to ${MAX_GL_PIXEL_SIZE}`
+    );
+  if (!Number.isInteger(samples) || samples < 1 || samples > 256)
+    throw new RangeError("samples must be an integer from 1 to 256");
+  if (typeof preserveDrawingBuffer !== "boolean")
+    throw new TypeError("preserveDrawingBuffer must be a boolean");
+  const renderPixelSize = resolveRenderPixelSize(size, pixelSize);
+
+  let accumulation: Accumulation | undefined;
+  let built: ReturnType<RenderSceneOptions["build"]> | undefined;
+  let surface: RenderSurface | undefined;
+  let unschedule: (() => void) | undefined;
+  let compiling = false;
+  let disposed = false;
+  let settled = false;
+  let phase: FlowerRenderPhase = "queued";
+  let resolveReady!: () => void;
+  let rejectReady!: (reason: unknown) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const report = (
+    next: FlowerRenderPhase,
+    progress: Readonly<{ completed?: number; total?: number }> = {},
+    propagate = true
+  ) => {
+    phase = next;
+    if (!onProgress) return;
+    const event = Object.freeze({ phase: next, ...progress });
+    if (propagate) onProgress(event);
+    else {
+      try {
+        onProgress(event);
+      } catch {}
+    }
+  };
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    resolveReady();
+  };
+  const cleanup = () => {
+    unschedule?.();
+    unschedule = undefined;
+    signal?.removeEventListener("abort", dispose);
+    accumulation?.cancel();
+    accumulation = undefined;
+    // Three polls material/program state until compileAsync settles.
+    if (compiling) return;
+    built?.dispose();
+    built = undefined;
+    surface?.dispose();
+    surface = undefined;
+  };
+  const fail = (error: unknown) => {
+    if (disposed) return;
+    cleanup();
+    if (!settled) {
+      settled = true;
+      rejectReady(error);
+    }
+    report("failed", {}, false);
+  };
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    report("disposed", {}, false);
+    cleanup();
+    finish();
+  }
+  const start = async () => {
+    unschedule = undefined;
+    if (disposed) return;
+    try {
+      report("building");
+      if (disposed) return;
+      built = build();
+      if (disposed) {
+        cleanup();
+        return;
+      }
+      surface = createRenderSurface({
+        canvas,
+        look,
+        pixelSize: renderPixelSize,
+        preserveDrawingBuffer,
+        scene: built.scene,
+        size,
+      });
+      if (disposed) {
+        cleanup();
+        return;
+      }
+      report("compiling");
+      if (disposed) return;
+      compiling = true;
+      try {
+        await surface.renderer.compileAsync(built.scene, built.camera);
+      } finally {
+        compiling = false;
+        if (disposed) cleanup();
+      }
+      if (disposed) return;
+      report("rendering", { completed: 0, total: samples });
+      if (disposed) return;
+      accumulation = accumulate({
+        ...built,
+        onFrame: (completed) =>
+          report("rendering", { completed, total: samples }),
+        samples,
+        surface,
+      });
+      void accumulation.ready.then(() => {
+        if (disposed) return;
+        try {
+          report("ready", { completed: samples, total: samples });
+          finish();
+        } catch (error) {
+          fail(error);
+        }
+      }, fail);
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  report("queued");
+  if (signal?.aborted) dispose();
+  else {
+    signal?.addEventListener("abort", dispose, { once: true });
+    unschedule = scheduleFrame(() => void start());
+  }
+  return {
+    dispose,
+    get phase() {
+      return phase;
+    },
+    ready,
+  };
 }

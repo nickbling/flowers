@@ -10,17 +10,11 @@ import type { FlowerModel } from "@/src/core/model";
 import type { FlowerSpecimen } from "@/src/core/species";
 import { buildFlower, type FlowerResources } from "@/src/gl/model";
 import {
-  type Accumulation,
-  accumulate,
-  createRenderSurface,
-  type RenderSurface,
-  resolveRenderPixelSize,
+  type RenderedFlower,
+  type RenderOptions,
+  renderScene,
 } from "@/src/gl/rendering";
-import {
-  BOTANICAL_STUDIO,
-  type BotanicalStudio,
-  createBotanicalStudio,
-} from "@/src/gl/studio";
+import { type BotanicalStudio, createBotanicalStudio } from "@/src/gl/studio";
 import { createRng } from "@/src/shared/prng";
 
 export type FlowerSceneOptions = Readonly<{
@@ -37,37 +31,17 @@ export type FlowerScene = Readonly<{
 }>;
 
 export type RenderFlowerOptions = FlowerSceneOptions &
+  Readonly<RenderOptions> &
   Readonly<{
-    canvas: HTMLCanvasElement | OffscreenCanvas;
-    onProgress?: (progress: FlowerRenderProgress) => void;
-    /** Backing-buffer width and height. Defaults to the studio sampling scale. */
-    pixelSize?: number;
     preserveDrawingBuffer?: boolean;
-    signal?: AbortSignal;
-    size?: number;
     specimen: FlowerSpecimen;
   }>;
 
-export type FlowerRenderPhase =
-  | "queued"
-  | "building"
-  | "compiling"
-  | "rendering"
-  | "ready"
-  | "disposed"
-  | "failed";
-
-export type FlowerRenderProgress = Readonly<{
-  completed?: number;
-  phase: FlowerRenderPhase;
-  total?: number;
-}>;
-
-export type RenderedFlower = Readonly<{
-  dispose(): void;
-  readonly phase: FlowerRenderPhase;
-  ready: Promise<void>;
-}>;
+export type {
+  FlowerRenderPhase,
+  FlowerRenderProgress,
+  RenderedFlower,
+} from "@/src/gl/rendering";
 
 function validateOptions(
   options: FlowerSceneOptions
@@ -174,159 +148,22 @@ export function flowerScene(
 }
 
 export function renderFlower({
-  canvas,
-  onProgress,
-  pixelSize,
-  preserveDrawingBuffer = false,
-  signal,
-  size = 480,
   specimen,
   ...options
 }: RenderFlowerOptions): RenderedFlower {
-  if (!Number.isSafeInteger(size) || size < 1 || size > 2048)
-    throw new RangeError("GL size must be an integer from 1 to 2048");
-  if (typeof preserveDrawingBuffer !== "boolean")
-    throw new TypeError("preserveDrawingBuffer must be a boolean");
-  const renderPixelSize = resolveRenderPixelSize(size, pixelSize);
-
-  let accumulation: Accumulation | undefined;
-  let built: BuiltFlowerScene | undefined;
-  let surface: RenderSurface | undefined;
-  let disposed = false;
-  let settled = false;
-  let scheduledFrame = 0;
-  let scheduledTimer: ReturnType<typeof setTimeout> | undefined;
-  let phase: FlowerRenderPhase = "queued";
-  let resolveReady!: () => void;
-  let rejectReady!: (reason: unknown) => void;
-  const ready = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  const report = (
-    next: FlowerRenderPhase,
-    progress: Readonly<{ completed?: number; total?: number }> = {},
-    propagate = true
-  ) => {
-    phase = next;
-    if (!onProgress) return;
-    const event = Object.freeze({ phase: next, ...progress });
-    if (propagate) onProgress(event);
-    else {
-      try {
-        onProgress(event);
-      } catch {}
-    }
-  };
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    resolveReady();
-  };
-  const cleanup = () => {
-    if (scheduledFrame && typeof cancelAnimationFrame === "function")
-      cancelAnimationFrame(scheduledFrame);
-    if (scheduledTimer !== undefined) clearTimeout(scheduledTimer);
-    scheduledFrame = 0;
-    scheduledTimer = undefined;
-    signal?.removeEventListener("abort", dispose);
-    accumulation?.cancel();
-    accumulation = undefined;
-    surface?.dispose();
-    surface = undefined;
-    built?.scene.dispose();
-    built = undefined;
-  };
-  const fail = (error: unknown) => {
-    if (disposed) {
-      finish();
-      return;
-    }
-    report("failed", {}, false);
-    cleanup();
-    if (settled) return;
-    settled = true;
-    rejectReady(error);
-  };
-  function dispose(): void {
-    if (disposed) return;
-    disposed = true;
-    report("disposed", {}, false);
-    cleanup();
-    finish();
-  }
-  const start = async () => {
-    scheduledFrame = 0;
-    scheduledTimer = undefined;
-    if (disposed) return;
-    try {
-      report("building");
-      if (disposed) return;
-      built = buildFlowerScene(specimen, options);
-      if (disposed) return;
-      surface = createRenderSurface({
-        canvas,
-        look: options.look ?? "luminous",
-        pixelSize: renderPixelSize,
-        preserveDrawingBuffer,
-        scene: built.scene.scene,
-        size,
-      });
-      report("compiling");
-      if (disposed) return;
-      await surface.renderer.compileAsync(
-        built.scene.scene,
-        built.scene.camera
-      );
-      if (disposed) return;
-      report("rendering", { completed: 0, total: BOTANICAL_STUDIO.samples });
-      if (disposed) return;
-      accumulation = accumulate({
-        camera: built.scene.camera,
-        onFrame: (completed) =>
-          report("rendering", { completed, total: BOTANICAL_STUDIO.samples }),
-        random: createRng(
-          `${specimen.model.genomeId}/${specimen.genome.seed}/botanical-studio`
-        ),
-        samples: BOTANICAL_STUDIO.samples,
-        scene: built.scene.scene,
-        studio: built.studio,
-        surface,
-      });
-      void accumulation.ready.then(() => {
-        if (disposed) return;
-        try {
-          report("ready", {
-            completed: BOTANICAL_STUDIO.samples,
-            total: BOTANICAL_STUDIO.samples,
-          });
-          finish();
-        } catch (error) {
-          fail(error);
-        }
-      }, fail);
-    } catch (error) {
-      fail(error);
-    }
-  };
-
-  report("queued");
-  if (signal?.aborted) dispose();
-  else {
-    signal?.addEventListener("abort", dispose, { once: true });
-    if (
-      typeof requestAnimationFrame === "function" &&
-      (typeof document === "undefined" || document.visibilityState !== "hidden")
-    )
-      scheduledFrame = requestAnimationFrame(() => void start());
-    else scheduledTimer = setTimeout(() => void start(), 0);
-  }
-
-  return Object.freeze({
-    dispose,
-    get phase() {
-      return phase;
-    },
-    ready,
-  });
+  return Object.freeze(
+    renderScene({
+      ...options,
+      build() {
+        const { scene, studio } = buildFlowerScene(specimen, options);
+        return {
+          ...scene,
+          studio,
+          random: createRng(
+            `${specimen.model.genomeId}/${specimen.genome.seed}/botanical-studio`
+          ),
+        };
+      },
+    })
+  );
 }

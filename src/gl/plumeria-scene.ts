@@ -1,18 +1,24 @@
 import {
   Box3,
-  Color,
-  type DataTexture as DataTextureType,
   Group,
   Light,
   Mesh,
   MeshPhysicalMaterial,
   OrthographicCamera,
   Scene,
-  ShaderChunk,
 } from "three";
-import { createFiberTexture } from "@/src/gl/fiber";
-import { petalGeometry, sampleRelief } from "@/src/gl/loft";
-import { type BotanicalStudio, createBotanicalStudio } from "@/src/gl/studio";
+import { tissues } from "@/src/core/anatomy";
+import { petalGeometry } from "@/src/gl/loft";
+import { createMaterial } from "@/src/gl/material";
+import { createPlumeriaPigment } from "@/src/gl/plumeria-pigment";
+import { createPlumeriaSkin } from "@/src/gl/plumeria-skin";
+import { sampleRelief } from "@/src/gl/plumeria-surface";
+import {
+  type BotanicalStudio,
+  type BotanicalStudioLight,
+  createBotanicalStudio,
+} from "@/src/gl/studio";
+import { preparePigmentMarks } from "@/src/plumeria/markings";
 import {
   growPlumeria,
   PLUMERIA_PETAL_COUNT,
@@ -30,6 +36,8 @@ export type PlumeriaSceneOptions = Readonly<{
   look?: "luminous" | "soft";
   /** Development view that isolates geometry and light from pigment and relief. */
   debugView?: "clay" | "final";
+  /** Deterministic bud-to-bloom anatomy review, from 0 (closed) to 1 (open). */
+  development?: number;
 }> &
   PlumeriaSelection;
 
@@ -44,59 +52,17 @@ export type PlumeriaScene = {
 export type DisposablePlumeriaScene = PlumeriaScene &
   Readonly<{ dispose(): void }>;
 
-// Wrapped diffuse transmission distinguishes soft tissue from opaque plastic.
-// Smooth normals prevent the relief map from blotching that response.
-function addTranslucency(material: MeshPhysicalMaterial): void {
-  material.onBeforeCompile = (shader) => {
-    const replaceRequired = (
-      source: string,
-      anchor: string,
-      replacement: string,
-      name: string
-    ): string => {
-      if (!source.includes(anchor))
-        throw new Error(`Unsupported three shader: missing ${name}`);
-      return source.replace(anchor, replacement);
-    };
-    shader.uniforms.sss = { value: 0.1 };
-    shader.uniforms.cavityStrength = { value: 0.38 };
-    const lit =
-      "RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );";
-    if (!ShaderChunk.lights_fragment_begin.includes(lit))
-      throw new Error("Unsupported three shader: missing RE_Direct");
-    const direct = replaceRequired(
-      shader.fragmentShader,
-      "#include <lights_fragment_begin>",
-      ShaderChunk.lights_fragment_begin.replaceAll(
-        lit,
-        `${lit}
-        {
-          // Add wrap only past the Lambert terminator.
-          vec3 sn = nonPerturbedNormal;
-          float ndl = dot( sn, directLight.direction );
-          float w = 0.3;
-          float wrap = max( 0.0, ( ndl + w ) / ( 1.0 + w ) ) - max( 0.0, ndl );
-          reflectedLight.directDiffuse += directLight.color * sss * diffuseColor.rgb * wrap;
-        }`
-      ),
-      "lights_fragment_begin"
-    );
-    const cavity = replaceRequired(
-      direct,
-      "#include <opaque_fragment>",
-      `#ifdef USE_BUMPMAP
-        // Micro-cavities occlude direct light too. This preserves groove
-        // readability when the broad key is frontal without tinting albedo.
-        float cavityHeight = texture2D( bumpMap, vBumpMapUv ).r;
-        float cavityOcclusion = pow( cavityHeight, 1.7 );
-        outgoingLight *= mix( 1.0, cavityOcclusion, cavityStrength );
-      #endif
-      #include <opaque_fragment>`,
-      "opaque_fragment"
-    );
-    shader.fragmentShader = `uniform float sss;\nuniform float cavityStrength;\n${cavity}`;
-  };
-}
+const PLUMERIA_STUDIO_LIGHT: BotanicalStudioLight = Object.freeze({
+  bounceIntensity: 0.2,
+  faceFillIntensity: 0.12,
+  hemisphereIntensity: 0.55,
+  keyAperture: 0.9,
+  keyIntensity: 1.35,
+  keyShadowIntensity: 0.85,
+  rimIntensity: 0.04,
+  skyIntensity: 0.5,
+  skyShadowIntensity: 0.7,
+});
 
 export type BuiltPlumeriaScene = Readonly<{
   portrait: DisposablePlumeriaScene;
@@ -110,12 +76,14 @@ export function buildPlumeriaScene({
   variant,
   look = "luminous",
   debugView = "final",
+  development = 1,
 }: PlumeriaSceneOptions): BuiltPlumeriaScene {
   if (look !== "luminous" && look !== "soft")
     throw new TypeError("look must be luminous or soft");
   if (debugView !== "clay" && debugView !== "final")
     throw new TypeError("debugView must be clay or final");
-  const luminous = look === "luminous";
+  if (!Number.isFinite(development) || development < 0 || development > 1)
+    throw new RangeError("development must be between 0 and 1");
   const clay = debugView === "clay";
   const grown = growPlumeria(
     seed,
@@ -132,31 +100,31 @@ export function buildPlumeriaScene({
   );
   const L = form.length;
 
-  const geometry = petalGeometry(form, relief, genome, grown.livery);
-  const skin = (bumpMap: DataTextureType | null) => {
-    const material = new MeshPhysicalMaterial({
-      color: clay ? new Color("#d7c1ad") : new Color("#ffffff"),
-      metalness: 0,
-      roughness: 0.78,
-      clearcoat: 0,
-      clearcoatRoughness: 1,
-      specularIntensity: 0.1,
-      ior: 1.4,
-      sheen: 0.06,
-      sheenRoughness: 0.9,
-      sheenColor: new Color("#ffffff"),
-      // A strong environment reflection veils pigment on this rough surface.
-      envMapIntensity: 0.1,
-      vertexColors: !clay,
-      // Relief-only folds stay visible under a frontal key without painted fibers.
-      bumpMap,
-      bumpScale: clay ? 0 : 1.3,
-    });
-    addTranslucency(material);
-    return material;
-  };
-  const fiber = clay ? null : createFiberTexture(`${seed}/fiber`);
-  const material = skin(fiber);
+  const marks = preparePigmentMarks(seed, genome, grown.livery);
+  const pigment = clay ? null : createPlumeriaPigment(grown, marks);
+  const geometry = petalGeometry(form, relief, development);
+  const fiberNormal = clay ? null : createPlumeriaSkin(`${seed}/fiber`);
+  const petalTissue = tissues.petal({
+    softness: 0.95,
+    thickness: 0.2,
+    translucency: 0,
+  });
+  const material = createMaterial({
+    clay,
+    surface: fiberNormal ? { normal: fiberNormal, normalScale: 1 } : {},
+    tissue: petalTissue,
+  });
+  if (pigment) {
+    material.map = pigment;
+    material.vertexColors = false;
+  }
+  material.envMapIntensity = 0.45;
+  material.roughness = 0.66;
+  if (material instanceof MeshPhysicalMaterial) {
+    material.sheen = 0;
+    material.specularIntensity = 0.9;
+    material.ior = 1.45;
+  }
 
   const corolla = new Group();
   for (const i of Array(PLUMERIA_PETAL_COUNT).keys()) {
@@ -165,6 +133,7 @@ export function buildPlumeriaScene({
     petal.rotation.z = (-i * 2 * Math.PI) / PLUMERIA_PETAL_COUNT;
     petal.castShadow = true;
     petal.receiveShadow = true;
+    petal.userData.organ = "petal";
     corolla.add(petal);
   }
 
@@ -177,8 +146,9 @@ export function buildPlumeriaScene({
       maximum: [box.max.x, box.max.y, box.max.z],
       minimum: [box.min.x, box.min.y, box.min.z],
     },
-    keyLight: [-0.65, 0.8, 1],
-    look: luminous ? "luminous" : "soft",
+    keyLight: [-0.58, 0.72, 1],
+    light: PLUMERIA_STUDIO_LIGHT,
+    look,
     scene,
   });
 
@@ -201,7 +171,8 @@ export function buildPlumeriaScene({
     if (disposed) return;
     disposed = true;
     geometry.dispose();
-    fiber?.dispose();
+    fiberNormal?.dispose();
+    pigment?.dispose();
     material.dispose();
     scene.traverse((object) => {
       if (object instanceof Light) object.dispose();

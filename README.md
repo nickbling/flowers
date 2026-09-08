@@ -39,7 +39,7 @@ await rendered.ready;
 rendered.dispose();
 ```
 
-`renderFlower()` shows a complete first image before its four studio samples converge. `onProgress`, `AbortSignal` and `dispose()` expose that lifecycle without exposing renderer internals.
+Both GL renderers defer scene construction, compile shaders asynchronously and show a complete first image before their default four samples converge. They share `onProgress`, `signal: AbortSignal`, `phase`, `ready` and `dispose()`. `ready` resolves on completion or cancellation and rejects deferred setup/rendering failures; disposal releases the GL resources once any in-flight shader compilation has settled. Scheduling is cooperative, not automatic worker offloading. Loading UI belongs to the caller; the package has no React or Next.js dependency. SVG generation remains synchronous.
 
 ## Render a plumeria
 

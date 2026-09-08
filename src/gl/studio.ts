@@ -86,6 +86,7 @@ export const BOTANICAL_STUDIO = Object.freeze({
     hemisphereIntensity: 0.5,
     keyAperture: 0.72,
     keyIntensity: 1.59,
+    keyShadowIntensity: 0,
     rimIntensity: 0.12,
     skyIntensity: 0.72,
     skyShadowIntensity: 0.3,
@@ -94,8 +95,8 @@ export const BOTANICAL_STUDIO = Object.freeze({
   pixelScale: 2,
   presentation: Object.freeze({
     knee: 0.9,
-    luminousExposure: 1.45,
-    luminousSaturation: 1.11,
+    luminousExposure: 1.5,
+    luminousSaturation: 1.08,
     softExposure: 1.34,
     softSaturation: 1.1,
   }),
@@ -120,6 +121,10 @@ export type BotanicalStudio = Readonly<{
   sample(random: () => number): void;
 }>;
 
+export type BotanicalStudioLight = Readonly<
+  Record<keyof typeof BOTANICAL_STUDIO.light, number>
+>;
+
 export type BotanicalPresentation = Readonly<{
   dispose(): void;
   present(scene: Scene, camera: Camera): void;
@@ -128,6 +133,7 @@ export type BotanicalPresentation = Readonly<{
 type BotanicalStudioOptions = Readonly<{
   bounds: FlowerBounds;
   keyLight: Point3;
+  light?: BotanicalStudioLight;
   look: "luminous" | "soft";
   scene: Scene;
 }>;
@@ -156,6 +162,7 @@ function cosineHemisphere(
 export function createBotanicalStudio({
   bounds,
   keyLight,
+  light = BOTANICAL_STUDIO.light,
   look,
   scene,
 }: BotanicalStudioOptions): BotanicalStudio {
@@ -177,7 +184,7 @@ export function createBotanicalStudio({
   const keyBase = center.clone().addScaledVector(direction, keyDistance);
   const key = new SpotLight(
     "#fffaf3",
-    BOTANICAL_STUDIO.light.keyIntensity * (luminous ? 1.04 : 0.92),
+    light.keyIntensity * (luminous ? 1.04 : 0.92),
     0,
     0.58,
     0.9,
@@ -185,22 +192,21 @@ export function createBotanicalStudio({
   );
   key.position.copy(keyBase);
   key.target.position.copy(center);
-  key.castShadow = false;
 
   const hemisphere = new HemisphereLight(
     "#f5f8ff",
     "#fff2e8",
-    BOTANICAL_STUDIO.light.hemisphereIntensity * (luminous ? 1.06 : 1)
+    light.hemisphereIntensity * (luminous ? 1.06 : 1)
   );
   const face = new DirectionalLight(
     "#fffdf9",
-    BOTANICAL_STUDIO.light.faceFillIntensity * (luminous ? 1.15 : 1)
+    light.faceFillIntensity * (luminous ? 1.15 : 1)
   );
   face.position.copy(center).add(new Vector3(0, 0, extent * 2.4));
   face.target.position.copy(center);
   const rim = new DirectionalLight(
     "#ffffff",
-    BOTANICAL_STUDIO.light.rimIntensity * (luminous ? 1.25 : 1)
+    light.rimIntensity * (luminous ? 1.25 : 1)
   );
   rim.position.copy(center).add(new Vector3(0, 0, -extent * 1.8));
   rim.target.position.copy(center);
@@ -208,24 +214,36 @@ export function createBotanicalStudio({
   const sampled = BOTANICAL_STUDIO.sampledLights;
   const sky = new DirectionalLight(
     sampled.skyColor,
-    BOTANICAL_STUDIO.light.skyIntensity * (luminous ? 1.04 : 1)
+    light.skyIntensity * (luminous ? 1.04 : 1)
   );
-  sky.castShadow = true;
-  sky.shadow.mapSize.set(sampled.shadowMapSize, sampled.shadowMapSize);
+  for (const [source, strength] of [
+    [key, light.keyShadowIntensity],
+    [sky, light.skyShadowIntensity],
+  ] as const) {
+    source.castShadow = strength > 0;
+    if (!source.castShadow) continue;
+    source.shadow.intensity = strength;
+    source.shadow.mapSize.set(sampled.shadowMapSize, sampled.shadowMapSize);
+    source.shadow.normalBias = sampled.shadowNormalBias * extent;
+    source.shadow.camera.near = sampled.shadowNear * extent;
+    source.shadow.camera.far = sampled.shadowFar * extent;
+  }
+  if (key.castShadow) {
+    // Fit the bounds' sphere from the closest sampled light position.
+    key.shadow.focus =
+      Math.asin((1.05 * spans.length()) / (2 * keyDistance)) / key.angle;
+    key.shadow.radius = 3;
+  }
   const shadow = sky.shadow.camera;
   const shadowExtent = 0.55 * sampled.shadowExtent * extent;
   shadow.left = shadow.bottom = -shadowExtent;
   shadow.right = shadow.top = shadowExtent;
-  shadow.near = sampled.shadowNear * extent;
-  shadow.far = sampled.shadowFar * extent;
   shadow.updateProjectionMatrix();
-  sky.shadow.normalBias = sampled.shadowNormalBias * extent;
-  sky.shadow.intensity = BOTANICAL_STUDIO.light.skyShadowIntensity;
   sky.target.position.copy(center);
 
   const bounce = new DirectionalLight(
     sampled.bounceColor,
-    BOTANICAL_STUDIO.light.bounceIntensity * (luminous ? 1.06 : 1)
+    light.bounceIntensity * (luminous ? 1.06 : 1)
   );
   bounce.target.position.copy(center);
 
@@ -258,8 +276,7 @@ export function createBotanicalStudio({
   const [keyU, keyV] = perpendicularBasis(keyAxis);
   return Object.freeze({
     sample(random: () => number) {
-      const radius =
-        BOTANICAL_STUDIO.light.keyAperture * extent * Math.sqrt(random());
+      const radius = light.keyAperture * extent * Math.sqrt(random());
       const angle = 2 * Math.PI * random();
       key.position
         .copy(keyBase)

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.0
+
+### Changed
+
+- Unified generic and Plumeria GL startup, progress, cancellation and cleanup in one framework-independent lifecycle; deferred Plumeria's GL preparation without changing its appearance or synchronous SVG API.
+- Rebuilt Plumeria GL as five complete ribbon petals, each extending from its tightly wrapped basal tip to its broad blade. Their lower tips converge without a separate tube, collar or plug.
+- Made opening primarily radial and outward-bending, with restrained spiral overlap, rounded tissue volume and fixed developmental topology.
+- Shared deterministic pigment markings across SVG and a compact GL texture, preserving specimen identity and Candy Stripe's interior stripe.
+- Simplified SVG paint preparation and GL mesh/resource ownership; removed unused vertex-pigment and translucency attributes.
+
+### Fixed
+
+- Restored Plumeria's 1.0 seed-to-specimen mapping, replacing the changed 1.1 output, and removed SVG band seams and outlines crossing overlapping petals.
+- Replaced fine GL vertex-color bands with continuous pigment texture sampling, separate from the opaque tissue's nondirectional microtexture.
+- Made GL throat and halo pigment follow individual petal length; removed added dark cores and shaded halo rings while preserving SVG ink contrast.
+- Added a broad directional key and gentler geometric contact shadows to Plumeria, preserving its five identical petals, pigment, material and four-frame default.
+- Restored readable SVG pigment strokes, fine grain and central contact shadows instead of an entirely blurred surface.
+- Corrected GL clipping and coarse terminal chords at petal tips; refined SVG tip curves against the same outline.
+- Added complete-ribbon manifold, collision, basal-closure and development checks, including the previously untested wrapped bases. Only the intentionally converged basal point may be shared between petals.
+- Updated development-tool dependencies to resolve PostCSS and nanoid security advisories.
+
 ## 1.1.0
 
 ### Added

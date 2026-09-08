@@ -15,7 +15,7 @@ import type {
 import { pigmentUsesSpace } from "@/src/core/pigment";
 import type { FlowerSpecimen } from "@/src/core/species";
 import { IDENTITY_TRANSFORM, multiplyTransforms } from "@/src/core/transform";
-import { createFiberTexture } from "@/src/gl/fiber";
+import { createFiberNormalTexture, createFiberTexture } from "@/src/gl/fiber";
 import { createGeometry } from "@/src/gl/geometry";
 import {
   createMaterial,
@@ -59,9 +59,8 @@ function addInstances(
 ): void {
   if (transforms.length === 0) return;
   const instances = new InstancedMesh(geometry, material, transforms.length);
-  transforms.forEach((transform, index) => {
+  for (const [index, transform] of transforms.entries())
     instances.setMatrixAt(index, matrix(transform));
-  });
   instances.instanceMatrix.needsUpdate = true;
   instances.castShadow = true;
   instances.receiveShadow = true;
@@ -77,16 +76,24 @@ export function buildFlower(
 ): Group {
   const flower = new Group();
   flower.name = `flower:${specimen.model.genomeId}`;
-  const textures = new Map<string, DataTexture>();
-  const textureFor = (definition: OrganGeometry): DataTexture | undefined => {
-    if (definition.kind !== "lamina") return undefined;
+  type SurfaceTextures = Readonly<{
+    height: DataTexture;
+    normal: DataTexture;
+  }>;
+  const textures = new Map<string, SurfaceTextures>();
+  const textureFor = (
+    definition: OrganGeometry
+  ): SurfaceTextures | undefined => {
+    if (clay || definition.kind !== "lamina") return undefined;
     let texture = textures.get(definition.id);
     if (!texture) {
-      texture = createFiberTexture(
+      const height = createFiberTexture(
         `${specimen.model.genomeId}/${definition.id}`
       );
+      texture = { height, normal: createFiberNormalTexture(height) };
       textures.set(definition.id, texture);
-      resources.textures.add(texture);
+      resources.textures.add(texture.height);
+      resources.textures.add(texture.normal);
     }
     return texture;
   };
@@ -121,12 +128,11 @@ export function buildFlower(
     ]);
     let material = materials.get(materialKey);
     if (!material) {
-      material = createMaterial(
-        appearance,
-        definition,
+      material = createMaterial({
         clay,
-        textureFor(definition)
-      );
+        surface: textureFor(definition),
+        tissue: appearance.tissue,
+      });
       resources.materials.add(material);
       materials.set(materialKey, material);
     }

@@ -346,22 +346,15 @@ export function createPlumeriaWorkbenchEntry(
     }),
     label: options.label?.trim() || "Plumeria",
     renderGl({ canvas, debugView, onProgress, size }) {
-      onProgress({ phase: "building" });
-      const rendered = renderPlumeria({
+      return renderPlumeria({
         canvas,
         date: options.date,
         debugView,
+        onProgress,
         samples,
         seed: options.seed,
         size,
         ...selection,
-      });
-      onProgress({ completed: 1, phase: "rendering", total: samples });
-      return Object.freeze({
-        dispose: rendered.dispose,
-        ready: rendered.ready.then(() => {
-          onProgress({ completed: samples, phase: "ready", total: samples });
-        }),
       });
     },
     renderSvg: ({ idPrefix, size }) =>
@@ -520,10 +513,12 @@ export function mountFlowerWorkbench(
         renderJobs.push(async () => {
           if (disposed) return;
           const source = outputs[0].canvas;
+          let hasRenderedFrame = false;
           const rendered = entry.renderGl({
             canvas: source,
             debugView,
             onProgress: ({ completed, phase, total }) => {
+              if ((completed ?? 0) > 0) hasRenderedFrame = true;
               for (const { figure, state } of outputs) {
                 figure.dataset.phase = phase;
                 if (completed && total) {
@@ -535,10 +530,8 @@ export function mountFlowerWorkbench(
             size,
           });
           renderers.add(rendered);
-          let hasRenderedFrame = false;
           try {
             await rendered.ready;
-            hasRenderedFrame = true;
             if (!disposed) {
               if (debugView === "final") {
                 const report = await compareRenderedFlowerMediaFrames(

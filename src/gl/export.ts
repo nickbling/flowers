@@ -2,29 +2,22 @@ import type { RenderedFlower, RenderFlowerOptions } from "@/src/gl/flower";
 import { renderFlower } from "@/src/gl/flower";
 import type {
   PlumeriaSceneOptions,
-  RenderedPlumeria,
   RenderPlumeriaOptions,
 } from "@/src/gl/plumeria";
 import { renderPlumeria } from "@/src/gl/plumeria";
 import { MAX_GL_PIXEL_SIZE, resolveRenderPixelSize } from "@/src/gl/rendering";
 
 type ExportCanvas = HTMLCanvasElement | OffscreenCanvas;
-type DisposableRender = Pick<
-  RenderedFlower | RenderedPlumeria,
-  "dispose" | "ready"
->;
+type DisposableRender = Pick<RenderedFlower, "dispose" | "ready">;
 
 export type ExportFlowerPngOptions = Omit<
   RenderFlowerOptions,
   "canvas" | "pixelSize" | "preserveDrawingBuffer"
 >;
 
+// Keep the exclusive cultivar/variant selection that Omit alone would erase.
 export type ExportPlumeriaPngOptions = PlumeriaSceneOptions &
-  Readonly<{
-    samples?: number;
-    signal?: AbortSignal;
-    size?: number;
-  }>;
+  Omit<RenderPlumeriaOptions, "canvas" | "pixelSize">;
 
 function exportCanvas(size: number): ExportCanvas {
   if (typeof document !== "undefined") {
@@ -80,7 +73,7 @@ async function renderPng(
   signal?: AbortSignal
 ): Promise<Blob> {
   try {
-    await abortable(rendered.ready, signal);
+    await rendered.ready;
     signal?.throwIfAborted();
     return await abortable(png(canvas), signal);
   } finally {
@@ -114,11 +107,10 @@ export function exportFlowerPng({
 
 /** Renders a Plumeria to a transparent high-resolution PNG. */
 export function exportPlumeriaPng({
-  signal,
   size = MAX_GL_PIXEL_SIZE,
   ...options
 }: ExportPlumeriaPngOptions): Promise<Blob> {
-  signal?.throwIfAborted();
+  options.signal?.throwIfAborted();
   resolveRenderPixelSize(size, size);
   const canvas = exportCanvas(size);
   try {
@@ -127,8 +119,8 @@ export function exportPlumeriaPng({
       canvas,
       pixelSize: size,
       size,
-    } as RenderPlumeriaOptions);
-    return renderPng(canvas, rendered, signal);
+    });
+    return renderPng(canvas, rendered, options.signal);
   } catch (error) {
     releaseCanvas(canvas);
     throw error;

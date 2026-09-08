@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { definePlumeriaCultivar, type PlumeriaOptions, plumeria } from "@/src";
+import {
+  definePlumeriaCultivar,
+  getPlumeriaVariant,
+  type PlumeriaOptions,
+  plumeria,
+  plumeriaVariants,
+} from "@/src";
 
 const fingerprint = (opts: PlumeriaOptions) =>
   createHash("sha256").update(plumeria(opts)).digest("hex").slice(0, 16);
@@ -19,42 +25,42 @@ const CASES: readonly Readonly<{
   options: PlumeriaOptions;
 }>[] = [
   {
-    expected: "6d9f0c0554273474",
+    expected: "76aa25e864be78ad",
     name: "reference",
     options: { seed: "2026-06-14" },
   },
   {
-    expected: "e96646f85eea11c8",
+    expected: "3f1607e17e9febdb",
     name: "bloom hooks",
     options: { seed: "2026-06-14", bloom: true },
   },
   {
-    expected: "b9bb8c4c2da97178",
+    expected: "b882818f47c5f9c7",
     name: "ground glow",
     options: { seed: "2026-06-14", glow: true },
   },
   {
-    expected: "dedfe04d18e6591c",
+    expected: "934a5c80ec44f071",
     name: "cast shadow",
     options: { seed: "2026-06-14", shadow: true },
   },
   {
-    expected: "2479d6ddd43c4e3f",
+    expected: "7593970fc256b55b",
     name: "alternate seed",
     options: { seed: "hello" },
   },
   {
-    expected: "fe070636e738b7c7",
+    expected: "035b3e3dc999d5ea",
     name: "dated moon exposure",
     options: { date: "1991-03-22", seed: "1991-03-22" },
   },
   {
-    expected: "216c47a50b8a5e47",
+    expected: "3a971c1b03b99397",
     name: "full moon exposure",
     options: { date: "2000-01-21", seed: "2000-01-21" },
   },
   {
-    expected: "fcfaba0675707d8b",
+    expected: "c4a2dd1a5fa4755c",
     name: "custom cultivar",
     options: { seed: "custom-alba", cultivar: ALBA },
   },
@@ -66,4 +72,19 @@ describe("plumeria vectors", () => {
       expect(fingerprint(options)).toBe(expected);
     });
   }
+
+  it("freezes catalog SVG output", () => {
+    const corpus = plumeriaVariants
+      .map(({ id }) =>
+        plumeria({
+          seed: `proof:${id}`,
+          variant: getPlumeriaVariant(id),
+        })
+      )
+      .join("\0");
+
+    expect(createHash("sha256").update(corpus).digest("hex").slice(0, 16)).toBe(
+      "3dce28a37065a79f"
+    );
+  });
 });

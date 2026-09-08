@@ -385,7 +385,8 @@ describe("renderer-neutral Three adapter", () => {
       expect(geometry.getAttribute("color").count).toBeGreaterThan(0);
       if ("clearcoat" in material) expect(material.clearcoat).toBe(0);
       expect(material.metalness).toBe(0);
-      expect(material.roughness).toBeGreaterThan(0.65);
+      expect(material.roughness).toBeGreaterThan(0.55);
+      expect(material.roughness).toBeLessThanOrEqual(0.9);
     }
     built.dispose();
   });

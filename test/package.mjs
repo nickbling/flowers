@@ -120,8 +120,9 @@ try {
   const bare = join(temporary, "bare");
   await createConsumer(bare);
   npm(["install", "--ignore-scripts", tarball], bare);
-  if (await exists(join(bare, "node_modules", "three")))
-    throw new Error("a root-only install included Three.js");
+  for (const dependency of ["three", "react", "react-dom", "next"])
+    if (await exists(join(bare, "node_modules", dependency)))
+      throw new Error(`a root-only install included ${dependency}`);
 
   await writeFile(
     join(bare, "consumer.ts"),
@@ -197,7 +198,8 @@ try {
     join(gl, "consumer.ts"),
     `
       import type { Scene } from "three";
-      import { exportFlowerPng, exportPlumeriaPng, flowerScene, plumeriaScene, renderFlower, renderPlumeria, type FlowerScene, type PlumeriaScene } from "@nbot/flowers/gl";
+      import type { PlumeriaCultivar, PlumeriaVariant } from "@nbot/flowers";
+      import { exportFlowerPng, exportPlumeriaPng, flowerScene, plumeriaScene, renderFlower, renderPlumeria, type FlowerRenderProgress, type RenderedFlower, type FlowerScene, type PlumeriaScene } from "@nbot/flowers/gl";
       import { assertSpeciesMedia, mountFlowerWorkbench } from "@nbot/flowers/devkit/browser";
       declare const flower: FlowerScene;
       const scene: Scene = flower.scene;
@@ -211,6 +213,24 @@ try {
       type OwnedPlumeriaScene = ReturnType<typeof plumeriaScene>;
       declare const ownedPlumeriaScene: OwnedPlumeriaScene;
       ownedPlumeriaScene.dispose();
+      declare const canvas: HTMLCanvasElement;
+      declare const custom: PlumeriaCultivar;
+      declare const variant: PlumeriaVariant;
+      const controls = {
+        onProgress: (event: FlowerRenderProgress) => { void event.phase; },
+        signal: new AbortController().signal,
+      };
+      const rendered = renderPlumeria({ ...controls, canvas, seed: "package", variant });
+      const compatibleLifecycle: RenderedFlower = rendered;
+      const ready: Promise<void> = rendered.ready;
+      const cultivarName: string = rendered.cultivar;
+      const png: Promise<Blob> = exportPlumeriaPng({ ...controls, seed: "package", cultivar: custom });
+      // @ts-expect-error cultivar and variant remain mutually exclusive
+      exportPlumeriaPng({ seed: "package", cultivar: custom, variant });
+      void compatibleLifecycle.phase;
+      void ready;
+      void cultivarName;
+      void png;
       void assertSpeciesMedia;
       void exportFlowerPng;
       void exportPlumeriaPng;

@@ -2,10 +2,11 @@ import {
   BufferAttribute,
   type BufferGeometry,
   Color,
-  type DataTexture,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   ShaderChunk,
+  type Texture,
+  Vector2,
 } from "three";
 import { polylineDistance } from "@/src/core/curve";
 import { evaluatePigment, type FieldSample } from "@/src/core/evaluate";
@@ -14,6 +15,7 @@ import type {
   OrganAppearance,
   OrganGeometry,
   Point3,
+  Tissue,
 } from "@/src/core/model";
 import { pigmentFeatures } from "@/src/core/pigment";
 import { transformPoint } from "@/src/core/transform";
@@ -52,7 +54,7 @@ export function paintGeometry(
   const requestedFeatures = pigmentFeatures(appearance.pigment);
   if (!target.boundingBox) target.computeBoundingBox();
   const bounds = target.boundingBox;
-  for (let index = 0; index < positions.count; index += 1) {
+  for (const index of Array(positions.count).keys()) {
     let organ: Point3 = [
       positions.getX(index),
       positions.getY(index),
@@ -103,54 +105,106 @@ export function paintGeometry(
   target.setAttribute("color", new BufferAttribute(colors, 3));
 }
 
+function replaceRequired(
+  source: string,
+  anchor: string,
+  replacement: string,
+  name: string
+): string {
+  if (!source.includes(anchor))
+    throw new Error(`Unsupported three shader: missing ${name}`);
+  return source.replace(anchor, replacement);
+}
+
 function addTissueTranslucency(
   material: MeshPhysicalMaterial,
   strength: number,
-  cavity: number
+  cavity: number,
+  usesThinness: boolean
 ): void {
   material.onBeforeCompile = (shader) => {
+    const usesCavityMap = cavity > 0 && material.bumpMap !== null;
+    if (usesThinness || usesCavityMap) {
+      const prefix = `${usesThinness ? "attribute float thinness;\nvarying float vFlowerThinness;\n" : ""}${usesCavityMap ? "varying vec2 vFlowerUv;\n" : ""}`;
+      const assignments = `${usesThinness ? "\nvFlowerThinness = thinness;" : ""}${usesCavityMap ? "\nvFlowerUv = uv;" : ""}`;
+      shader.vertexShader = `${prefix}${replaceRequired(
+        shader.vertexShader,
+        "#include <begin_vertex>",
+        `#include <begin_vertex>${assignments}`,
+        "begin_vertex"
+      )}`;
+    }
+
     const anchor =
       "RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );";
     if (!ShaderChunk.lights_fragment_begin.includes(anchor))
       throw new Error("Unsupported three shader: missing RE_Direct");
-    shader.uniforms.flowerTransmission = { value: 0.22 * strength };
+    shader.uniforms.flowerTransmission = { value: 0.03 * strength };
     shader.uniforms.flowerCavity = { value: cavity };
+    if (usesCavityMap)
+      shader.uniforms.flowerHeightMap = { value: material.bumpMap };
+    const thinScatter = usesThinness
+      ? "mix( 0.90, 1.05, clamp( vFlowerThinness / 0.55, 0.0, 1.0 ) )"
+      : "1.0";
     const lighting = ShaderChunk.lights_fragment_begin.replaceAll(
       anchor,
       `${anchor}
       {
         float flowerNdl = dot( nonPerturbedNormal, directLight.direction );
-        float flowerWrap = max( 0.0, ( flowerNdl + 0.28 ) / 1.28 ) - max( 0.0, flowerNdl );
-        reflectedLight.directDiffuse += directLight.color * flowerTransmission * diffuseColor.rgb * flowerWrap;
+        float flowerWrap = max( 0.0, ( flowerNdl + 0.16 ) / 1.16 ) - max( 0.0, flowerNdl );
+        float flowerThinScatter = ${thinScatter};
+        reflectedLight.directDiffuse += directLight.color * flowerTransmission * flowerThinScatter * diffuseColor.rgb * flowerWrap;
       }`
     );
-    const lit = shader.fragmentShader
-      .replace("#include <lights_fragment_begin>", lighting)
-      .replace(
-        "void main() {",
-        "uniform float flowerTransmission;\nuniform float flowerCavity;\nvoid main() {"
-      );
-    if (!lit.includes("#include <opaque_fragment>"))
-      throw new Error("Unsupported three shader: missing opaque_fragment");
-    shader.fragmentShader = lit.replace(
+    const declarations = `${usesThinness ? "varying float vFlowerThinness;\n" : ""}${usesCavityMap ? "varying vec2 vFlowerUv;\nuniform sampler2D flowerHeightMap;\n" : ""}uniform float flowerTransmission;\nuniform float flowerCavity;\nvoid main() {`;
+    const lit = replaceRequired(
+      replaceRequired(
+        shader.fragmentShader,
+        "#include <lights_fragment_begin>",
+        lighting,
+        "lights_fragment_begin"
+      ),
+      "void main() {",
+      declarations,
+      "main"
+    );
+    shader.fragmentShader = replaceRequired(
+      lit,
       "#include <opaque_fragment>",
-      `#ifdef USE_BUMPMAP
-        float flowerCavityHeight = texture2D( bumpMap, vBumpMapUv ).r;
-        outgoingLight *= mix( 1.0, pow( flowerCavityHeight, 1.6 ), flowerCavity );
-      #endif
-      #include <opaque_fragment>`
+      `${
+        usesCavityMap
+          ? `float flowerCavityHeight = texture2D( flowerHeightMap, vFlowerUv ).r;
+        outgoingLight *= mix( 1.0, pow( flowerCavityHeight, 2.2 ), flowerCavity );`
+          : ""
+      }
+      #include <opaque_fragment>`,
+      "opaque_fragment"
     );
   };
-  material.customProgramCacheKey = () => `flower-tissue-${strength}-${cavity}`;
+  material.customProgramCacheKey = () =>
+    `flower-tissue-${strength}-${cavity}-${usesThinness}`;
 }
 
-export function createMaterial(
-  appearance: OrganAppearance,
-  geometry: OrganGeometry,
-  clay: boolean,
-  texture?: DataTexture
-): FlowerMaterial {
-  const tissue = appearance.tissue;
+type FlowerSurfaceMaps = Readonly<{
+  cavity?: number;
+  displacementScale?: number;
+  height?: Texture;
+  normal?: Texture;
+  normalScale?: number;
+  usesThinness?: boolean;
+}>;
+
+type FlowerMaterialOptions = Readonly<{
+  clay: boolean;
+  surface?: FlowerSurfaceMaps;
+  tissue: Tissue;
+}>;
+
+export function createMaterial({
+  clay,
+  surface = {},
+  tissue,
+}: FlowerMaterialOptions): FlowerMaterial {
   if (tissue.type === "anther" || tissue.type === "pollen")
     return new MeshStandardMaterial({
       color: clay ? new Color("#d8c7b6") : new Color("#ffffff"),
@@ -159,21 +213,33 @@ export function createMaterial(
       roughness: tissue.type === "pollen" ? 0.9 : 0.78,
       vertexColors: !clay,
     });
+
   const relief = 1.05 - 0.3 * tissue.thickness;
+  const displacementScale = clay ? 0 : (surface.displacementScale ?? 0);
+  const height = clay ? null : (surface.height ?? null);
+  const normal = clay ? null : (surface.normal ?? null);
   const material = new MeshPhysicalMaterial({
-    bumpMap: clay || geometry.kind !== "lamina" ? null : (texture ?? null),
-    bumpScale: clay ? 0 : 1.15 * relief,
+    bumpMap: height,
+    bumpScale: clay ? 0 : 0.3 * relief,
     clearcoat: 0,
     clearcoatRoughness: 1,
     color: clay ? new Color("#d8c7b6") : new Color("#ffffff"),
-    envMapIntensity: 0.1,
+    displacementBias: -0.975 * displacementScale,
+    displacementMap: displacementScale ? height : null,
+    displacementScale,
+    envMapIntensity: 0.18 + 0.04 * tissue.softness,
     ior: 1.38,
     metalness: 0,
-    roughness: 0.7 + 0.14 * tissue.softness,
-    sheen: clay ? 0 : 0.04 + 0.04 * tissue.softness,
-    sheenColor: new Color("#fffdf8"),
-    sheenRoughness: 0.9,
-    specularIntensity: 0.08 + 0.06 * (1 - tissue.softness),
+    normalMap: normal,
+    normalScale: new Vector2(
+      surface.normalScale ?? 0.5 * relief,
+      surface.normalScale ?? 0.5 * relief
+    ),
+    roughness: 0.72 + 0.04 * (1 - tissue.softness),
+    sheen: clay ? 0 : 0.03,
+    sheenColor: new Color("#fffaf4"),
+    sheenRoughness: 1,
+    specularIntensity: 0.31 + 0.03 * tissue.softness,
     vertexColors: !clay,
   });
   if (!clay)
@@ -183,7 +249,8 @@ export function createMaterial(
         1,
         1.35 * tissue.translucency * (1.15 - 0.75 * tissue.thickness)
       ),
-      geometry.kind === "lamina" ? 0.34 + 0.1 * tissue.softness : 0
+      surface.cavity ?? 0,
+      surface.usesThinness ?? false
     );
   return material;
 }

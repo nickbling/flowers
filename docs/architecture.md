@@ -36,11 +36,17 @@ Pigment is a declarative field evaluated by both renderers. Tissue describes bot
 
 The SVG renderer separates projection, pigment sampling and organ drawing, then emits a complete transparent document with inline paint-critical properties.
 
-The GL renderer separates geometry, material and scene compilation. Generic flowers and Plumeria share one canvas, studio, accumulation and disposal lifecycle. PNG export owns its detached high-resolution canvas and always disposes that lifecycle before returning the encoded image.
+The GL renderer separates geometry, material and scene compilation. Generic flowers and Plumeria share one canvas, studio, accumulation and disposal lifecycle. Plumeria uses a broad directional key with softened shadow strength and a sampled sky. The key and sky own two shadow maps; the four-frame default is unchanged. Light may vary across the five identical petals without changing their shared geometry or pigment. Generic profiles retain their unshadowed key and sampled sky. Production proof captures use the same render surface as the public renderer. PNG export owns its detached high-resolution canvas and always disposes that lifecycle before returning the encoded image.
 
 SVG is not generated from GL and GL is not generated from SVG. Both begin from the model because converting either finished medium would discard anatomy or material information.
 
-Plumeria keeps specialized SVG and GL geometry for its cyclic overlap and art-directed surface. Both consume one immutable specimen for form and livery; only projection, tessellation and medium-specific tone mapping differ.
+Plumeria keeps specialized SVG and GL geometry for its cyclic overlap and art-directed surface. Both consume the established 1.0 sprout contract for form, genome and livery; projection, tessellation and surface treatment belong to each medium. SVG keeps illustrative pigment strokes and fine grain; GL uses physical volume and skin. Their shared identity does not require flattening either treatment.
+
+The GL corolla contains exactly five complete petals sharing one `BufferGeometry`, placed at exact 72° rotations. Each petal includes its own narrow wrapped base, opening throat and broad blade. Their overlapping lower portions create the apparent tube and converge at the basal tips, closing its lower outlet; no separate basal mesh or common attachment ring exists. Each petal is a closed tissue shell with rounded front/back volume and its own continuous margins.
+
+`plumeria-surface.ts` owns shape and development; `loft.ts` samples that surface into a mesh. A common meridian coordinate system keeps neighboring ribbons in a consistent overlap order while they widen and bend outward. Only a gentle angular bias remains in the opened blade. A scalar inverse preserves its canonical `laminaPoint()` projection. Development retains the same indices, attributes and rotation-only instances.
+
+Pigment uses a compact texture in each petal's along/across material coordinates, prepared from the same markings as SVG. Throat and halo follow petal length, not a projected radius around the flower. Mark profiles preserve their footprint and integrated coverage without imposing a dark center; the halo changes color rather than adding a shaded ring. SVG ink contrast stays in its own adapter. Physical microtexture has separate mature rest-space coordinates; both coordinate sets remain fixed during opening. The scene owns one geometry, one material and the pigment/normal maps, disposing each once.
 
 ## Packages and revisions
 

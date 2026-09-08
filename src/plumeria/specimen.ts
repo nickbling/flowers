@@ -11,7 +11,7 @@ import {
   type PlumeriaVariant,
   resolvePlumeriaVariant,
 } from "@/src/plumeria/variants";
-import { between, createRng } from "@/src/shared/prng";
+import { between, createRng, intBetween } from "@/src/shared/prng";
 
 export const PLUMERIA_PETAL_COUNT = 5;
 export const PLUMERIA_VIEWBOX = 480;
@@ -34,34 +34,47 @@ export type PlumeriaSpecimen = Readonly<{
   uid: string;
 }>;
 
-function selectedGenome(
+export type Sprout = Omit<PlumeriaSpecimen, "livery"> & {
+  baseFrequency: number;
+  blush2At: number;
+  blush2Mix: number | null;
+  blush2Opacity: number;
+  blush2Width: number;
+  flowSeed: number;
+  grainSeed: number;
+  halo: number;
+  stripeSide: number;
+  stripeVisible: boolean;
+};
+
+function germinate(
   seed: string,
   moon: number,
   custom?: PlumeriaCultivar,
-  requestedVariant?: PlumeriaVariant
-): Genome {
+  requestedVariant?: PlumeriaVariant,
+  idPrefix?: string
+) {
   if (custom && requestedVariant)
     throw new TypeError("plumeria cultivar and variant are mutually exclusive");
   const variant = requestedVariant
     ? resolvePlumeriaVariant(requestedVariant)
     : undefined;
-  return sampleGenome(createRng(seed), moon, custom, variant);
-}
-
-function sampleLivery(seed: string): PlumeriaLivery {
-  const random = createRng(`${seed}\0plumeria/livery`);
-  const halo = random() < 0.4 ? between(random, 0.12, 0.22) : 0;
-  const stripeVisible = random() < 0.081;
-  const blush2Mix = random() < 0.45 ? between(random, 0.3, 0.7) : null;
-  return {
-    blush2At: between(random, 0.35, 0.7),
-    blush2Mix,
-    blush2Opacity: between(random, 0.1, 0.2),
-    blush2Width: between(random, 0.14, 0.22),
-    halo,
-    stripeSide: between(random, -0.6, 0.6),
-    stripeVisible,
-  };
+  const rng = createRng(seed);
+  const flowerId = Math.floor(rng() * 1e9).toString(36);
+  const namespaceRng = createRng(`${seed}\u0000plumeria-svg-id`);
+  const namespaceId = [namespaceRng(), namespaceRng()]
+    .map((value) => Math.floor(value * 1e9).toString(36))
+    .join("");
+  const cultivarId = custom
+    ? jsonFingerprint(custom.recipe)
+    : variant
+      ? jsonFingerprint(variant.id)
+      : "builtins";
+  // Moon exposure changes paint and therefore belongs to the SVG namespace.
+  const moonId = Math.round(moon * 1_000_000).toString(36);
+  const uid = `${idPrefix ? `${idPrefix}-` : ""}${flowerId}${namespaceId}${cultivarId}m${moonId}`;
+  const genome = sampleGenome(rng, moon, custom, variant);
+  return { genome, rng, uid };
 }
 
 export function plumeriaCultivarName(
@@ -69,7 +82,54 @@ export function plumeriaCultivarName(
   custom?: PlumeriaCultivar,
   variant?: PlumeriaVariant
 ): string {
-  return selectedGenome(seed, 0, custom, variant).cultivar;
+  const rng = createRng(seed);
+  rng();
+  return sampleGenome(rng, 0, custom, variant).cultivar;
+}
+
+export function sprout(
+  seed: string,
+  moon = 0,
+  custom?: PlumeriaCultivar,
+  idPrefix?: string,
+  variant?: PlumeriaVariant
+): Sprout {
+  if (!seed) throw new TypeError("seed must not be empty");
+  const { genome, rng, uid } = germinate(seed, moon, custom, variant, idPrefix);
+  const baseFrequency = Math.round(between(rng, 0.008, 0.014) * 1e4) / 1e4;
+  const flowSeed = intBetween(rng, 1, 999999);
+  const halo = rng() < 0.4 ? between(rng, 0.12, 0.22) : 0;
+  const stripy = rng() < 0.18;
+  const blush2Mix = rng() < 0.45 ? between(rng, 0.3, 0.7) : null;
+  // The reserved draw is part of the seed-to-specimen contract.
+  rng();
+  const grainSeed = intBetween(rng, 1, 999999);
+  const liveryRng = createRng(`${seed}|livery`);
+  const sampledStripeVisibility = liveryRng() < 0.45;
+  const stripeVisible =
+    genome.cultivar === "candy stripe" || (stripy && sampledStripeVisibility);
+  const stripeSide = between(liveryRng, -0.6, 0.6);
+  const blush2At = between(liveryRng, 0.35, 0.7);
+  const blush2Width = between(liveryRng, 0.14, 0.22);
+  const blush2Opacity = between(liveryRng, 0.1, 0.2);
+  const form = petalForm(genome.form, rng);
+  const frame = corollaFrame(form);
+  return {
+    baseFrequency,
+    blush2At,
+    blush2Mix,
+    blush2Opacity,
+    blush2Width,
+    flowSeed,
+    form,
+    frame,
+    genome,
+    grainSeed,
+    halo,
+    stripeSide,
+    stripeVisible,
+    uid,
+  };
 }
 
 export function growPlumeria(
@@ -78,12 +138,33 @@ export function growPlumeria(
   custom?: PlumeriaCultivar,
   variant?: PlumeriaVariant
 ): PlumeriaSpecimen {
-  if (!seed) throw new TypeError("seed must not be empty");
-  const genome = selectedGenome(seed, moon, custom, variant);
-  const form = petalForm(genome.form, createRng(`${seed}\0plumeria/form`));
-  const frame = corollaFrame(form);
-  const livery = sampleLivery(seed);
-  const { cultivar: _displayName, ...visualGenome } = genome;
-  const uid = jsonFingerprint({ form, genome: visualGenome, livery });
-  return deepFreeze({ form, frame, genome, livery, uid });
+  const grown = sprout(seed, moon, custom, undefined, variant);
+  const {
+    form,
+    frame,
+    genome,
+    uid,
+    blush2At,
+    blush2Mix,
+    blush2Opacity,
+    blush2Width,
+    halo,
+    stripeSide,
+    stripeVisible,
+  } = grown;
+  return deepFreeze({
+    form,
+    frame,
+    genome,
+    livery: {
+      blush2At,
+      blush2Mix,
+      blush2Opacity,
+      blush2Width,
+      halo,
+      stripeSide,
+      stripeVisible,
+    },
+    uid,
+  });
 }

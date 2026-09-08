@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@nbot/flowers",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Deterministic botanical flowers from one shared genome, rendered as SVG or with Three.js.",
   "type": "module",
   "license": "MIT",
@@ -102,6 +102,7 @@
     "@types/node": "^24.13.3",
     "@types/three": "^0.185.1",
     "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14",
     "tsdown": "^0.22.7",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"

@@ -3,6 +3,7 @@
 // produce the shared pinwheel overlap.
 
 import type { Genome } from "@/src/plumeria/genome";
+import { fmt } from "@/src/plumeria/svg-markup";
 import { between, type Rng } from "@/src/shared/prng";
 
 function lerp(from: number, to: number, amount: number): number {
@@ -136,10 +137,6 @@ export function laminaBand(
     .concat(" Z");
 }
 
-function fmt(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
 function closedPath(points: [number, number][]): string {
   const n = points.length;
   const at = (i: number) => points[((i % n) + n) % n];
@@ -160,14 +157,14 @@ function closedPath(points: [number, number][]): string {
 export function petalOutline(f: PetalForm, samples = 20): string {
   const points: [number, number][] = [];
 
-  // Cosine spacing resolves the high-curvature base and tip.
-  const ease = (i: number) => (1 - Math.cos((Math.PI * i) / samples)) / 2;
-
-  for (let i = 0; i <= samples; i += 1) {
-    points.push(flankPoint(f, f.over, 1, ease(i)));
-  }
-  for (let i = samples - 1; i >= 1; i -= 1) {
-    points.push(flankPoint(f, f.under, -1, ease(i)));
+  // Cosine spacing, with fourfold refinement only in the final two intervals.
+  const parameters = Array.from({ length: samples + 7 }, (_, i) => {
+    const step = i <= samples - 2 ? i : samples - 2 + (i - samples + 2) / 4;
+    return (1 - Math.cos((Math.PI * step) / samples)) / 2;
+  });
+  for (const t of parameters) points.push(flankPoint(f, f.over, 1, t));
+  for (let i = parameters.length - 2; i >= 1; i -= 1) {
+    points.push(flankPoint(f, f.under, -1, parameters[i]));
   }
 
   return closedPath(points);
