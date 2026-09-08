@@ -104,7 +104,7 @@
     "three": "^0.185.1",
     "three-mesh-bvh": "^0.9.14",
     "tsdown": "^0.22.7",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "publishConfig": {
